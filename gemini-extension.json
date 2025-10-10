@@ -1,0 +1,14 @@
+{
+  "name": "compliance-manager",
+  "version": "1.0.0",
+  "description": "Google Cloud Compliance Manager extension for Gemini CLI",
+  "mcpServers": {
+    "compliance-manager-mcp": {
+      "command": "${extensionPath}/run_mcp.sh",
+      "args": [],
+      "env": {}
+    }
+  },
+  "contextFileName": "GEMINI.md"
+}
+
