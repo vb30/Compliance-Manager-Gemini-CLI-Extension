@@ -164,3 +164,6 @@ credentials.json
 # MCP settings
 mcp_settings.json
 
+# Build/staging directories
+.gemini/
+

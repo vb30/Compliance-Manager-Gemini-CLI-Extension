@@ -24,7 +24,7 @@ echo "✓ Prerequisites found"
 EXTENSION_DIR="$HOME/.gemini/extensions/compliance-manager"
 mkdir -p "$EXTENSION_DIR"
 
-# Create virtual environment
+# Create virtual environment (isolates dependencies from system Python)
 echo "Creating virtual environment..."
 python3 -m venv "$EXTENSION_DIR/.venv"
 
@@ -51,12 +51,19 @@ cp compliance_manager_mcp.py "$EXTENSION_DIR/"
 cp GEMINI.md "$EXTENSION_DIR/"
 
 # Create run script
+# MCP requires clean JSON on stdout - all logging goes to stderr and is suppressed
 cat > "$EXTENSION_DIR/run_mcp.sh" << 'EOF'
 #!/bin/bash
 cd "$(dirname "$0")"
+
+# Suppress all logging - MCP requires clean JSON on stdout
 export GRPC_VERBOSITY=ERROR
 export GLOG_minloglevel=3
 export PYTHONUNBUFFERED=1
+
+# Run MCP server
+# Logging now goes to stderr (configured in compliance_manager_mcp.py)
+# Redirect stderr to /dev/null to keep output clean for JSON-RPC
 exec .venv/bin/python3 -W ignore compliance_manager_mcp.py 2>/dev/null
 EOF
 chmod +x "$EXTENSION_DIR/run_mcp.sh"

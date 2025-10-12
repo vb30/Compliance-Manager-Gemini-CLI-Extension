@@ -5,10 +5,10 @@ A Gemini CLI extension for Google Cloud Compliance Manager (Security Command Cen
 ## What It Does
 
 Talk to Gemini CLI in natural language to manage compliance frameworks and controls in your Google Cloud organization:
-- List and inspect compliance frameworks (CIS, NIST, FedRAMP, etc.)
-- View and manage cloud controls
-- Deploy frameworks to organizations, folders, or projects
-- Monitor compliance deployments
+- **Discover**: List and inspect built-in compliance frameworks (CIS, NIST, FedRAMP, etc.)
+- **Create**: Build custom cloud controls and frameworks for your specific requirements
+- **Deploy**: Apply frameworks to organizations, folders, or projects
+- **Monitor**: Track compliance deployments and findings
 
 ## Installation
 
@@ -75,26 +75,62 @@ gemini
 
 ### Example Conversations
 
+**Discovery:**
 ```
 > List all compliance frameworks in organization 123456789012
 
 > Show me details of the CIS framework
 
+> What cloud controls are available?
+```
+
+**Creating Custom Controls:**
+```
+> Create a custom cloud control to check for public bucket access
+
+> I need a control to verify MFA is enabled
+
+> Build a custom control for data residency requirements
+```
+
+**Creating Custom Frameworks:**
+```
+> Create a framework called "company-security-baseline" with CIS and custom controls
+
+> Build a custom framework for EU data residency compliance
+
+> Combine NIST and FedRAMP controls into a new framework
+```
+
+**Deployment:**
+```
 > Deploy the NIST framework to project my-project-id
 
-> What frameworks are currently deployed?
+> Apply my custom framework to the production folder
 
-> Help me understand what compliance frameworks are available
+> What frameworks are currently deployed?
 ```
 
 The extension understands natural language - just ask what you need!
 
 ## Requirements
 
-- **IAM Permissions**: You need one of these roles on your GCP organization:
-  - `roles/securitycenter.complianceManager` (full access)
-  - `roles/securitycenter.adminEditor` (full access)
-  - `roles/securitycenter.adminViewer` (read-only)
+### Before You Start
+
+**Compliance Manager must be enabled** in your Google Cloud organization:
+
+1. You need **Security Command Center Enterprise** tier
+2. Enable Compliance Manager at: https://console.cloud.google.com/security/compliance-manager
+3. See the [enablement guide](https://cloud.google.com/security-command-center/docs/compliance-manager-enable)
+
+**Need help enabling?** Just ask the extension: "How do I enable Compliance Manager?"
+
+### IAM Permissions
+
+You need one of these roles on your GCP organization:
+- `roles/securitycenter.complianceManager` (full access)
+- `roles/securitycenter.adminEditor` (full access)
+- `roles/securitycenter.adminViewer` (read-only)
 
 ## Troubleshooting
 
