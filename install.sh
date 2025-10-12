@@ -28,16 +28,22 @@ mkdir -p "$EXTENSION_DIR"
 echo "Creating virtual environment..."
 python3 -m venv "$EXTENSION_DIR/.venv"
 
-# Install dependencies
+# Install dependencies using pip
 echo "Installing dependencies..."
 "$EXTENSION_DIR/.venv/bin/pip" install -q --upgrade pip
-"$EXTENSION_DIR/.venv/bin/pip" install -q \
-    httpx>=0.28.1 \
-    "mcp[cli]>=1.4.1" \
-    python-dotenv>=1.0.0 \
-    typing-extensions>=4.8.0 \
-    aiohttp>=3.9.0 \
-    google-cloud-cloudsecuritycompliance>=0.2.0
+
+# Use requirements.txt if available, otherwise install directly
+if [ -f "requirements.txt" ]; then
+    "$EXTENSION_DIR/.venv/bin/pip" install -q -r requirements.txt
+else
+    "$EXTENSION_DIR/.venv/bin/pip" install -q \
+        httpx>=0.28.1 \
+        "mcp[cli]>=1.4.1" \
+        python-dotenv>=1.0.0 \
+        typing-extensions>=4.8.0 \
+        aiohttp>=3.9.0 \
+        google-cloud-cloudsecuritycompliance>=0.2.0
+fi
 
 # Copy files
 echo "Copying extension files..."

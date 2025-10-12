@@ -36,9 +36,34 @@ chmod +x install.sh
 ```
 
 That's it! The script will:
-- Create a virtual environment
-- Install dependencies
+- Create a virtual environment with Python's built-in venv
+- Install dependencies using pip (no need for uv or other tools)
 - Set up the extension in `~/.gemini/extensions/compliance-manager`
+
+### Alternative: Manual Installation with pip
+
+If you prefer to install manually or use pip directly:
+
+```bash
+# Clone the repository
+git clone https://github.com/vb30/Compliance-Manager-Gemini-CLI-Extension.git
+cd Compliance-Manager-Gemini-CLI-Extension
+
+# Create extension directory
+mkdir -p ~/.gemini/extensions/compliance-manager
+
+# Create virtual environment
+python3 -m venv ~/.gemini/extensions/compliance-manager/.venv
+
+# Install dependencies using requirements.txt
+~/.gemini/extensions/compliance-manager/.venv/bin/pip install -r requirements.txt
+
+# Copy files
+cp compliance_manager_mcp.py ~/.gemini/extensions/compliance-manager/
+cp GEMINI.md ~/.gemini/extensions/compliance-manager/
+
+# Create run script and config (see install.sh for details)
+```
 
 ## Usage
 
