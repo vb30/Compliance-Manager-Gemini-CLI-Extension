@@ -12,7 +12,6 @@
 ## Useful Information
 
 **Status:** Draft  
-**PLC Phase:** Concept  
 **Last Updated:** 2025-01-27  
 **Authors:** Varun Bhardwaj  
 **Collaborators:** TBD  
@@ -118,7 +117,7 @@ A **Gemini CLI extension** that provides a Model Context Protocol (MCP) server f
 **Prerequisites:**
 - Gemini CLI installed and authenticated
 - Compliance Manager enabled in GCP organization
-- User has `roles/securitycenter.adminViewer` or higher
+- User has IAM role<> or higher
 - Organization ID known
 
 **Journey Steps:**
@@ -185,8 +184,6 @@ Would you like to deploy this framework or see specific controls?"
 **Integration Points:**
 - **GCP Products:** Security Command Center, Compliance Manager API
 - **Dependencies:** Gemini CLI, MCP protocol, google-cloud-cloudsecuritycompliance library
-- **TPC Support:** Fully supported (uses standard GCP APIs)
-
 ---
 
 ### CUJ 2: Create a Custom Cloud Control with AI Assistance
@@ -196,7 +193,7 @@ Would you like to deploy this framework or see specific controls?"
 **User Role:** Security Engineer (experienced with GCP, new to CEL)
 
 **Prerequisites:**
-- User has `roles/securitycenter.complianceManager` role
+- User has <> role
 - Understanding of the security requirement to enforce
 - Knowledge of target resource type (e.g., Compute Engine, Cloud Storage)
 
@@ -265,7 +262,6 @@ What would you like to do?"
 **Integration Points:**
 - **GCP Products:** Cloud Asset Inventory (for resource schemas), Compliance Manager API
 - **Dependencies:** Gemini LLM (for CEL generation), MCP protocol
-- **TPC Support:** Fully supported
 
 ---
 
@@ -276,7 +272,7 @@ What would you like to do?"
 **User Role:** DevOps Engineer (deploying infrastructure with compliance requirements)
 
 **Prerequisites:**
-- User has `roles/securitycenter.complianceManager` role
+- User has <> role
 - Target project exists and is accessible
 - Framework to deploy is identified (e.g., NIST, CIS, custom framework)
 - User understands deployment implications
@@ -357,7 +353,6 @@ Would you like to:
 **Integration Points:**
 - **GCP Products:** Security Command Center (for findings), Compliance Manager API, Cloud Resource Manager (for resource validation)
 - **Dependencies:** Long-running operation handling, MCP protocol
-- **TPC Support:** Fully supported
 
 ---
 
@@ -368,7 +363,7 @@ Would you like to:
 **User Role:** Compliance Officer (defining organizational security policies)
 
 **Prerequisites:**
-- User has `roles/securitycenter.complianceManager` role
+- User has <> role
 - Understanding of required compliance controls
 - Target resources for deployment identified
 - Knowledge of regulatory requirements to meet
@@ -486,7 +481,6 @@ Next steps:
 **Integration Points:**
 - **GCP Products:** Compliance Manager API, Cloud Asset Inventory, Security Command Center
 - **Dependencies:** Multi-step workflow orchestration, MCP protocol, Gemini LLM
-- **TPC Support:** Fully supported
 
 ---
 
@@ -497,7 +491,7 @@ Next steps:
 **User Role:** Security Engineer (monitoring compliance posture)
 
 **Prerequisites:**
-- User has `roles/securitycenter.adminViewer` or higher
+- User has <> or higher
 - Frameworks are deployed to various resources
 - User wants to audit compliance coverage
 - Organization ID known
@@ -622,7 +616,6 @@ Would you like to:
 **Integration Points:**
 - **GCP Products:** Security Command Center (for findings), Compliance Manager API, Cloud Resource Manager
 - **Dependencies:** MCP protocol, data aggregation and analysis
-- **TPC Support:** Fully supported
 
 ---
 
@@ -653,13 +646,6 @@ All CUJs use **CLI (Gemini)** as the primary interface, leveraging:
 **Products that depend on this product:**
 - None currently (standalone extension)
 - Future: Potential integration with IaC tools, CI/CD pipelines
-
-### TPC Support
-All features are **fully supported in TPC** (Trusted Partner Cloud):
-- Uses standard GCP APIs available in TPC
-- No special permissions or configurations required
-- Complies with TPC security and compliance requirements
-
 ---
 
 ## Additional Considerations
@@ -686,9 +672,6 @@ All features are **fully supported in TPC** (Trusted Partner Cloud):
 - Cloud Asset Inventory (for resource data)
 - Cloud Resource Manager (for resource validation)
 
-**Are the features fully supported in TPC?**
-- Yes, all features use standard GCP APIs available in TPC
-- No TPC-specific limitations or restrictions
 
 ### User Profiles Targeted
 Based on Cloud user personas:
