@@ -64,7 +64,7 @@ export PYTHONUNBUFFERED=1
 # Run MCP server
 # Logging now goes to stderr (configured in compliance_manager_mcp.py)
 # Redirect stderr to /dev/null to keep output clean for JSON-RPC
-exec .venv/bin/python3 -W ignore compliance_manager_mcp.py 2>/dev/null
+exec .venv/bin/python3 -W ignore compliance_manager_mcp.py 2> /tmp/mcpComp.log
 EOF
 chmod +x "$EXTENSION_DIR/run_mcp.sh"
 

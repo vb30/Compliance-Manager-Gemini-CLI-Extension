@@ -14,9 +14,12 @@
 
 import logging
 from typing import Any, Dict, List, Optional
+import time
+import sys
 
 from google.api_core import exceptions as google_exceptions
 from google.api_core import operation
+from google.longrunning import operations_pb2
 from google.cloud.cloudsecuritycompliance_v1.services.config import ConfigClient
 from google.cloud.cloudsecuritycompliance_v1.services.deployment import DeploymentClient
 from google.cloud.cloudsecuritycompliance_v1.types import (
@@ -28,6 +31,7 @@ from google.cloud.cloudsecuritycompliance_v1.types import (
     DeleteFrameworkDeploymentRequest,
     DeleteFrameworkRequest,
     Framework,
+    FrameworkReference,
     FrameworkDeployment,
     GetCloudControlDeploymentRequest,
     GetCloudControlRequest,
@@ -40,6 +44,9 @@ from google.cloud.cloudsecuritycompliance_v1.types import (
     TargetResourceConfig,
     UpdateCloudControlRequest,
     UpdateFrameworkRequest,
+    EnforcementMode,
+    CloudControlDetails,
+    CloudControlMetadata,
 )
 from google.protobuf import json_format
 from mcp.server.fastmcp import FastMCP
@@ -50,7 +57,7 @@ mcp = FastMCP("compliance-manager-mcp")
 # Configure logging
 # IMPORTANT: MCP requires stdout to be clean JSON only
 # All logging must go to stderr to avoid breaking JSON-RPC protocol
-import sys
+
 logging.basicConfig(
     level=logging.INFO,
     stream=sys.stderr,  # Send all logs to stderr, not stdout
@@ -87,6 +94,73 @@ def proto_message_to_dict(message: Any) -> Dict[str, Any]:
         logger.error(f"Error converting protobuf message to dict: {e}")
         return {"error": "Failed to serialize response part", "details": str(e)}
 
+def fetch_lro_status(lro_name: str) -> Dict[str, Any]:
+    """Fetches the status of a long-running operation using DeploymentClient.get_operation."""
+    if not deployment_client:
+        return {"result": "failed", "error": "Deployment Client not initialized."}
+
+    logger.info(f"Fetching status for LRO: {lro_name}")
+    request = operations_pb2.GetOperationRequest(name=lro_name)
+    logger.info(f"Request for get operation {request}")
+
+    for i in range(30):  # Poll for a maximum of 30 * 10 = 300 seconds
+        try:
+            # Use the DeploymentClient's get_operation method
+            operation_result = deployment_client.get_operation(request=request)
+            if operation_result.done:
+                if operation_result.HasField("error"):
+                    logger.error(f"LRO {lro_name} failed: {operation_result.error}")
+                    return {"result": "failed"}
+                else:
+                    logger.info(f"LRO {lro_name} completed successfully.")
+                    return {"result": "passed"}
+            else:
+                logger.debug(f"LRO {lro_name} is still in progress... (Attempt {i + 1})")
+                time.sleep(10)
+        except google_exceptions.GoogleAPICallError as e:
+            logger.error(f"Error calling GetOperation for {lro_name}: {e}", exc_info=True)
+            return {"result": "failed", "error": str(e)}
+        except Exception as e:
+            logger.error(f"Unexpected error fetching LRO status for {lro_name}: {e}", exc_info=True)
+            return {"result": "failed", "error": f"Unexpected error: {str(e)}"}
+
+    logger.warning(f"LRO {lro_name} timed out after 300 seconds.")
+    return {"result": "timeout"}
+
+def create_cloud_control_metadata_list(cloud_controls: str, parent: str) -> list[CloudControlMetadata]:
+    cloud_control_metadata_list = []
+    for control_entry in cloud_controls.split(','):
+
+        control_entry = control_entry.strip()
+        if not control_entry:
+            continue
+
+        # Split control ID and revision
+        parts = control_entry.split('#')
+        if len(parts) != 2:
+            print(f"Skipping malformed entry: {control_entry} - missing # or too many #")
+            continue
+
+        cloud_control_id, major_revision_str = parts
+        
+        if not major_revision_str.isdigit():
+            print(f"Skipping non-integer revision: {major_revision_str} in {control_entry}")
+            continue
+
+        major_revision_id = int(major_revision_str)
+
+        # Construct the full control name
+        # control_name = f"{parent_with_location}/cloudControls/{cloud_control_id}"
+
+        print(f"ID: {cloud_control_id}, Major: {major_revision_id}")
+
+
+        cloud_control_metadata = CloudControlMetadata(
+            cloud_control_details=CloudControlDetails(name=f"{parent}/cloudControls/{cloud_control_id}", major_revision_id=major_revision_id),
+            enforcement_mode=EnforcementMode.DETECTIVE
+        )
+        cloud_control_metadata_list.append(cloud_control_metadata)
+    return cloud_control_metadata_list
 
 # --- Config Service Tools (Frameworks and Cloud Controls) ---
 
@@ -98,7 +172,7 @@ async def list_frameworks(
 ) -> Dict[str, Any]:
     """Name: list_frameworks
 
-    Description: Lists all compliance frameworks available in an organization. Frameworks can be built-in 
+    Description: Lists all compliance frameworks available in an organization. Frameworks can be built-in
                  (e.g., CIS, NIST, FedRAMP) or custom-defined.
     Parameters:
     organization_id (required): The Google Cloud organization ID (e.g., '123456789012').
@@ -123,7 +197,7 @@ async def list_frameworks(
         for framework in response_pager:
             framework_dict = proto_message_to_dict(framework)
             frameworks.append(framework_dict)
-        
+
         return {
             "frameworks": frameworks,
             "count": len(frameworks),
@@ -148,7 +222,7 @@ async def get_framework(
 ) -> Dict[str, Any]:
     """Name: get_framework
 
-    Description: Gets detailed information about a specific compliance framework, including its cloud controls 
+    Description: Gets detailed information about a specific compliance framework, including its cloud controls
                  and regulatory control mappings.
     Parameters:
     organization_id (required): The Google Cloud organization ID.
@@ -164,7 +238,7 @@ async def get_framework(
     try:
         request = GetFrameworkRequest(name=name)
         framework = config_client.get_framework(request=request)
-        
+
         return proto_message_to_dict(framework)
 
     except google_exceptions.NotFound as e:
@@ -186,7 +260,7 @@ async def list_cloud_controls(
 ) -> Dict[str, Any]:
     """Name: list_cloud_controls
 
-    Description: Lists all cloud controls available in an organization. Cloud controls are technical items 
+    Description: Lists all cloud controls available in an organization. Cloud controls are technical items
                  that help meet compliance requirements.
     Parameters:
     organization_id (required): The Google Cloud organization ID.
@@ -204,14 +278,14 @@ async def list_cloud_controls(
             parent=parent,
             page_size=page_size,
         )
-        
+
         response_pager = config_client.list_cloud_controls(request=request)
-        
+
         cloud_controls = []
         for control in response_pager:
             control_dict = proto_message_to_dict(control)
             cloud_controls.append(control_dict)
-        
+
         return {
             "cloud_controls": cloud_controls,
             "count": len(cloud_controls),
@@ -236,7 +310,7 @@ async def get_cloud_control(
 ) -> Dict[str, Any]:
     """Name: get_cloud_control
 
-    Description: Gets detailed information about a specific cloud control, including its rules, parameters, 
+    Description: Gets detailed information about a specific cloud control, including its rules, parameters,
                  and enforcement mode.
     Parameters:
     organization_id (required): The Google Cloud organization ID.
@@ -252,195 +326,12 @@ async def get_cloud_control(
     try:
         request = GetCloudControlRequest(name=name)
         cloud_control = config_client.get_cloud_control(request=request)
-        
+
         return proto_message_to_dict(cloud_control)
 
     except google_exceptions.NotFound as e:
         logger.error(f"Cloud control not found: {e}")
         return {"error": "Not Found", "details": f"Could not find cloud control '{cloud_control_id}'. {str(e)}"}
-    except google_exceptions.PermissionDenied as e:
-        logger.error(f"Permission denied: {e}")
-        return {"error": "Permission Denied", "details": str(e)}
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-        return {"error": "An unexpected error occurred", "details": str(e)}
-
-
-@mcp.tool()
-async def create_cloud_control(
-    organization_id: str,
-    cloud_control_id: str,
-    display_name: str,
-    description: str,
-    resource_type: str,
-    cel_expression: str,
-    severity: str = "MEDIUM",
-    remediation_instructions: str = "",
-    location: str = "global",
-) -> Dict[str, Any]:
-    """Name: create_cloud_control
-
-    Description: Creates a custom cloud control with CEL-based detection logic. Custom cloud controls allow you to
-                 define your own compliance requirements using Common Expression Language (CEL) to evaluate
-                 Cloud Asset Inventory resources.
-
-    Parameters:
-    organization_id (required): The Google Cloud organization ID (e.g., "123456789012").
-    cloud_control_id (required): Unique identifier for the cloud control (e.g., "require-secure-boot").
-    display_name (required): Human-readable name for the cloud control.
-    description (required): Description of what the cloud control checks for.
-    resource_type (required): Cloud Asset Inventory resource type to evaluate (e.g., "compute.googleapis.com/Instance",
-                             "storage.googleapis.com/Bucket", "sqladmin.googleapis.com/Instance").
-    cel_expression (required): CEL expression that evaluates to FALSE to trigger a finding.
-                              The expression evaluates properties of the resource as defined in Cloud Asset Inventory.
-
-                              CEL Expression Rules:
-                              - Must return boolean false to trigger a finding
-                              - All enums must be represented as strings
-                              - Use has() to check if a field exists before accessing it
-                              - Common operators: ==, !=, &&, ||, matches(), contains(), exists()
-
-                              Example CEL Expressions:
-                              - Check KMS key rotation period (7776000s = 90 days):
-                                "has(resource.data.rotationPeriod) && resource.data.rotationPeriod <= duration('7776000s')"
-                              - Check if Compute Engine instance has Secure Boot enabled:
-                                "has(resource.data.shieldedInstanceConfig) && resource.data.shieldedInstanceConfig.enableSecureBoot"
-                              - Check if Cloud Storage bucket is not public:
-                                "!(resource.data.iamConfiguration.publicAccessPrevention == 'ENFORCED')"
-                              - Check if Cloud SQL instance has public IP disabled:
-                                "!(resource.data.settings.ipConfiguration.ipv4Enabled)"
-                              - Match resource name pattern:
-                                "resource.data.name.matches('^gcp-vm-(linux|windows)-v\\\\d+$')"
-                              - Check if service is enabled (for serviceusage.googleapis.com/Service):
-                                "resource.data.state == 'ENABLED' && !resource.data.name.matches('storage-api.googleapis.com')"
-
-    severity (optional): Finding severity level. One of: "CRITICAL", "HIGH", "MEDIUM", "LOW". Defaults to "MEDIUM".
-    remediation_instructions (optional): Instructions for remediating findings from this control.
-    location (optional): Location for the cloud control. Defaults to 'global'.
-
-    Returns: Dictionary with status and created cloud control details.
-
-    Example:
-        create_cloud_control(
-            organization_id="123456789012",
-            cloud_control_id="require-secure-boot",
-            display_name="Require Secure Boot on VMs",
-            description="Ensures all Compute Engine instances have Secure Boot enabled for enhanced security",
-            resource_type="compute.googleapis.com/Instance",
-            cel_expression="has(resource.data.shieldedInstanceConfig) && resource.data.shieldedInstanceConfig.enableSecureBoot",
-            severity="HIGH",
-            remediation_instructions="Enable Secure Boot in the Shielded VM settings: gcloud compute instances update INSTANCE_NAME --shielded-secure-boot"
-        )
-
-    Note: For a complete list of Cloud Asset Inventory resource types and their properties, see:
-          https://cloud.google.com/asset-inventory/docs/supported-asset-types
-    """
-    if not config_client:
-        return {"error": "Config Client not initialized."}
-
-    parent = f"organizations/{organization_id}/locations/{location}"
-    logger.info(f"Creating cloud control '{cloud_control_id}' in parent: {parent}")
-    logger.info(f"Resource type: {resource_type}, CEL expression: {cel_expression}")
-
-    try:
-        # Note: The CloudControl message structure may need to be adjusted based on the actual API
-        # The current implementation creates a basic cloud control
-        # CEL expression and resource type configuration may need to be set through additional API calls
-        cloud_control = CloudControl(
-            display_name=display_name,
-            description=description,
-        )
-
-        request = CreateCloudControlRequest(
-            parent=parent,
-            cloud_control_id=cloud_control_id,
-            cloud_control=cloud_control,
-        )
-
-        result = config_client.create_cloud_control(request=request)
-
-        return {
-            "status": "success",
-            "cloud_control": proto_message_to_dict(result),
-            "configuration": {
-                "resource_type": resource_type,
-                "cel_expression": cel_expression,
-                "severity": severity,
-                "remediation_instructions": remediation_instructions,
-            },
-            "note": "Cloud control created. You may need to configure the CEL expression and resource type through the Google Cloud Console or additional API calls.",
-        }
-
-    except google_exceptions.AlreadyExists as e:
-        logger.error(f"Cloud control already exists: {e}")
-        return {"error": "Already Exists", "details": f"Cloud control '{cloud_control_id}' already exists. {str(e)}"}
-    except google_exceptions.PermissionDenied as e:
-        logger.error(f"Permission denied: {e}")
-        return {"error": "Permission Denied", "details": str(e)}
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-        return {"error": "An unexpected error occurred", "details": str(e)}
-
-
-@mcp.tool()
-async def create_framework(
-    organization_id: str,
-    framework_id: str,
-    display_name: str,
-    description: str,
-    cloud_control_ids: List[str],
-    location: str = "global",
-) -> Dict[str, Any]:
-    """Name: create_framework
-
-    Description: Creates a custom compliance framework. Frameworks are collections of cloud controls that help
-                 meet specific compliance requirements.
-    Parameters:
-    organization_id (required): The Google Cloud organization ID.
-    framework_id (required): The ID for the new framework (must be unique).
-    display_name (required): A human-readable name for the framework.
-    description (required): A description of the framework's purpose.
-    cloud_control_ids (required): List of cloud control IDs to include in this framework.
-    location (optional): The location for the framework. Defaults to 'global'.
-    """
-    if not config_client:
-        return {"error": "Config Client not initialized."}
-
-    parent = f"organizations/{organization_id}/locations/{location}"
-    logger.info(f"Creating framework '{framework_id}' in parent: {parent}")
-
-    try:
-        # Build cloud control references
-        cloud_controls = [
-            f"organizations/{organization_id}/locations/{location}/cloudControls/{control_id}"
-            for control_id in cloud_control_ids
-        ]
-
-        framework = Framework(
-            display_name=display_name,
-            description=description,
-            cloud_controls=cloud_controls,
-        )
-
-        request = CreateFrameworkRequest(
-            parent=parent,
-            framework_id=framework_id,
-            framework=framework,
-        )
-
-        result = config_client.create_framework(request=request)
-
-        return {
-            "status": "success",
-            "framework": proto_message_to_dict(result),
-        }
-
-    except google_exceptions.AlreadyExists as e:
-        logger.error(f"Framework already exists: {e}")
-        return {"error": "Already Exists", "details": f"Framework '{framework_id}' already exists. {str(e)}"}
-    except google_exceptions.NotFound as e:
-        logger.error(f"One or more cloud controls not found: {e}")
-        return {"error": "Not Found", "details": f"One or more cloud controls not found. {str(e)}"}
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -476,14 +367,14 @@ async def list_framework_deployments(
             parent=parent_with_location,
             page_size=page_size,
         )
-        
+
         response_pager = deployment_client.list_framework_deployments(request=request)
-        
+
         deployments = []
         for deployment in response_pager:
             deployment_dict = proto_message_to_dict(deployment)
             deployments.append(deployment_dict)
-        
+
         return {
             "framework_deployments": deployments,
             "count": len(deployments),
@@ -542,37 +433,52 @@ async def create_framework_deployment(
     parent: str,
     framework_deployment_id: str,
     framework_name: str,
+    cloud_controls: str,
+    framework_version: int = None,
     location: str = "global",
     target_resource: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Name: create_framework_deployment
 
     Description: Creates a new framework deployment on a target resource. This applies a compliance framework
-                 to an organization, folder, or project.
+                 to an organization, folder, or project. This is a long-running operation.
     Parameters:
     parent (required): The parent resource in format 'organizations/{org_id}', 'folders/{folder_id}', or 'projects/{project_id}'.
     framework_deployment_id (required): The ID for the new framework deployment.
     framework_name (required): The full name of the framework to deploy (e.g., 'organizations/{org_id}/locations/global/frameworks/{framework_id}').
+    cloud_controls (required): This is a comma seperated list of could_control ids along with their revision number seperated by a hash.
+        So the entire string is of format: cloud_control_id1#revision1,cloud_control_id2#revision2.
     location (optional): The location for the deployment. Defaults to 'global'.
     target_resource (optional): The target resource name. If not provided, uses the parent resource.
+    framework_version (optional): The major version of the framework. If not specified the latest version of the framework is used.
     """
     if not deployment_client:
         return {"error": "Deployment Client not initialized."}
 
     parent_with_location = f"{parent}/locations/{location}"
+    complete_framework_deployment_id = f"{parent_with_location}/frameworkDeployments/{framework_deployment_id}"
     logger.info(f"Creating framework deployment '{framework_deployment_id}' in parent: {parent_with_location}")
+
+    cloud_control_metadata_list = create_cloud_control_metadata_list(cloud_controls, parent_with_location)
+
+    # Set target resource if provided
+    if not target_resource:
+        target_resource = parent
+
+    framework_reference = FrameworkReference(framework = framework_name)
+    if framework_version:
+        framework_reference.major_revision_id = framework_version
 
     try:
         # Create the framework deployment object
         framework_deployment = FrameworkDeployment(
-            framework=framework_name,
+            framework=framework_reference,
+            cloud_control_metadata=cloud_control_metadata_list,
+            target_resource_config = TargetResourceConfig(
+                existing_target_resource=target_resource
+            ),
+            name = complete_framework_deployment_id
         )
-
-        # Set target resource if provided
-        if target_resource:
-            framework_deployment.target_resource_config = TargetResourceConfig(
-                target_resource_name=target_resource
-            )
 
         request = CreateFrameworkDeploymentRequest(
             parent=parent_with_location,
@@ -580,17 +486,14 @@ async def create_framework_deployment(
             framework_deployment=framework_deployment,
         )
 
+        logger.info(f"Request for create framework deployment {request}")
+
         # This is a long-running operation
         operation_result = deployment_client.create_framework_deployment(request=request)
 
         # Wait for the operation to complete
-        logger.info(f"Waiting for framework deployment creation to complete...")
-        result = operation_result.result()
-
-        return {
-            "status": "success",
-            "framework_deployment": proto_message_to_dict(result),
-        }
+        logger.info(f"Waiting for framework deployment creation to complete...: {operation_result.operation.name}")
+        return fetch_lro_status(operation_result.operation.name)
 
     except google_exceptions.NotFound as e:
         logger.error(f"Parent resource or framework not found: {e}")
@@ -614,7 +517,7 @@ async def delete_framework_deployment(
 ) -> Dict[str, Any]:
     """Name: delete_framework_deployment
 
-    Description: Deletes a framework deployment. This removes the compliance framework from the target resource.
+    Description: Deletes a framework deployment. This removes the compliance framework from the target resource. This is a long-running operation.
     Parameters:
     parent (required): The parent resource in format 'organizations/{org_id}', 'folders/{folder_id}', or 'projects/{project_id}'.
     framework_deployment_id (required): The ID of the framework deployment to delete.
@@ -633,13 +536,8 @@ async def delete_framework_deployment(
         operation_result = deployment_client.delete_framework_deployment(request=request)
 
         # Wait for the operation to complete
-        logger.info(f"Waiting for framework deployment deletion to complete...")
-        operation_result.result()
-
-        return {
-            "status": "success",
-            "message": f"Framework deployment '{framework_deployment_id}' deleted successfully.",
-        }
+        logger.info(f"Waiting for framework deployment deletion to complete... LRO Name: {operation_result.operation.name}")
+        return fetch_lro_status(operation_result.operation.name)
 
     except google_exceptions.NotFound as e:
         logger.error(f"Framework deployment not found: {e}")
