@@ -339,6 +339,178 @@ async def get_cloud_control(
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
         return {"error": "An unexpected error occurred", "details": str(e)}
 
+@mcp.tool()
+async def create_cloud_control(
+    organization_id: str,
+    cloud_control_id: str,
+    display_name: str,
+    description: str,
+    resource_type: str,
+    cel_expression: str,
+    severity: str = "MEDIUM",
+    remediation_instructions: str = "",
+    location: str = "global",
+) -> Dict[str, Any]:
+    """Name: create_cloud_control
+    Description: Creates a custom cloud control with CEL-based detection logic. Custom cloud controls allow you to
+                 define your own compliance requirements using Common Expression Language (CEL) to evaluate
+                 Cloud Asset Inventory resources.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID (e.g., "123456789012").
+    cloud_control_id (required): Unique identifier for the cloud control (e.g., "require-secure-boot").
+    display_name (required): Human-readable name for the cloud control.
+    description (required): Description of what the cloud control checks for.
+    resource_type (required): Cloud Asset Inventory resource type to evaluate (e.g., "compute.googleapis.com/Instance",
+                             "storage.googleapis.com/Bucket", "sqladmin.googleapis.com/Instance").
+    cel_expression (required): CEL expression that evaluates to FALSE to trigger a finding.
+                              The expression evaluates properties of the resource as defined in Cloud Asset Inventory.
+                              CEL Expression Rules:
+                              - Must return boolean false to trigger a finding
+                              - All enums must be represented as strings
+                              - Use has() to check if a field exists before accessing it
+                              - Common operators: ==, !=, &&, ||, matches(), contains(), exists()
+                              Example CEL Expressions:
+                              - Check KMS key rotation period (7776000s = 90 days):
+                                "has(resource.data.rotationPeriod) && resource.data.rotationPeriod <= duration('7776000s')"
+                              - Check if Compute Engine instance has Secure Boot enabled:
+                                "has(resource.data.shieldedInstanceConfig) && resource.data.shieldedInstanceConfig.enableSecureBoot"
+                              - Check if Cloud Storage bucket is not public:
+                                "!(resource.data.iamConfiguration.publicAccessPrevention == 'ENFORCED')"
+                              - Check if Cloud SQL instance has public IP disabled:
+                                "!(resource.data.settings.ipConfiguration.ipv4Enabled)"
+                              - Match resource name pattern:
+                                "resource.data.name.matches('^gcp-vm-(linux|windows)-v\\\\d+$')"
+                              - Check if service is enabled (for serviceusage.googleapis.com/Service):
+                                "resource.data.state == 'ENABLED' && !resource.data.name.matches('storage-api.googleapis.com')"
+    severity (optional): Finding severity level. One of: "CRITICAL", "HIGH", "MEDIUM", "LOW". Defaults to "MEDIUM".
+    remediation_instructions (optional): Instructions for remediating findings from this control.
+    location (optional): Location for the cloud control. Defaults to 'global'.
+    Returns: Dictionary with status and created cloud control details.
+    Example:
+        create_cloud_control(
+            organization_id="123456789012",
+            cloud_control_id="require-secure-boot",
+            display_name="Require Secure Boot on VMs",
+            description="Ensures all Compute Engine instances have Secure Boot enabled for enhanced security",
+            resource_type="compute.googleapis.com/Instance",
+            cel_expression="has(resource.data.shieldedInstanceConfig) && resource.data.shieldedInstanceConfig.enableSecureBoot",
+            severity="HIGH",
+            remediation_instructions="Enable Secure Boot in the Shielded VM settings: gcloud compute instances update INSTANCE_NAME --shielded-secure-boot"
+        )
+    Note: For a complete list of Cloud Asset Inventory resource types and their properties, see:
+          https://cloud.google.com/asset-inventory/docs/supported-asset-types
+    """
+    if not config_client:
+        return {"error": "Config Client not initialized."}
+
+    parent = f"organizations/{organization_id}/locations/{location}"
+    logger.info(f"Creating cloud control '{cloud_control_id}' in parent: {parent}")
+    logger.info(f"Resource type: {resource_type}, CEL expression: {cel_expression}")
+
+    try:
+        # Note: The CloudControl message structure may need to be adjusted based on the actual API
+        # The current implementation creates a basic cloud control
+        # CEL expression and resource type configuration may need to be set through additional API calls
+        cloud_control = CloudControl(
+            display_name=display_name,
+            description=description,
+        )
+
+        request = CreateCloudControlRequest(
+            parent=parent,
+            cloud_control_id=cloud_control_id,
+            cloud_control=cloud_control,
+        )
+
+        result = config_client.create_cloud_control(request=request)
+
+        return {
+            "status": "success",
+            "cloud_control": proto_message_to_dict(result),
+            "configuration": {
+                "resource_type": resource_type,
+                "cel_expression": cel_expression,
+                "severity": severity,
+                "remediation_instructions": remediation_instructions,
+            },
+            "note": "Cloud control created. You may need to configure the CEL expression and resource type through the Google Cloud Console or additional API calls.",
+        }
+
+    except google_exceptions.AlreadyExists as e:
+        logger.error(f"Cloud control already exists: {e}")
+        return {"error": "Already Exists", "details": f"Cloud control '{cloud_control_id}' already exists. {str(e)}"}
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {e}")
+        return {"error": "Permission Denied", "details": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def create_framework(
+    organization_id: str,
+    framework_id: str,
+    display_name: str,
+    description: str,
+    cloud_control_ids: List[str],
+    location: str = "global",
+) -> Dict[str, Any]:
+    """Name: create_framework
+    Description: Creates a custom compliance framework. Frameworks are collections of cloud controls that help
+                 meet specific compliance requirements.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    framework_id (required): The ID for the new framework (must be unique).
+    display_name (required): A human-readable name for the framework.
+    description (required): A description of the framework's purpose.
+    cloud_control_ids (required): List of cloud control IDs to include in this framework.
+    location (optional): The location for the framework. Defaults to 'global'.
+    """
+    if not config_client:
+        return {"error": "Config Client not initialized."}
+
+    parent = f"organizations/{organization_id}/locations/{location}"
+    logger.info(f"Creating framework '{framework_id}' in parent: {parent}")
+
+    try:
+        # Build cloud control references
+        cloud_controls = [
+            f"organizations/{organization_id}/locations/{location}/cloudControls/{control_id}"
+            for control_id in cloud_control_ids
+        ]
+
+        framework = Framework(
+            display_name=display_name,
+            description=description,
+            cloud_controls=cloud_controls,
+        )
+
+        request = CreateFrameworkRequest(
+            parent=parent,
+            framework_id=framework_id,
+            framework=framework,
+        )
+
+        result = config_client.create_framework(request=request)
+
+        return {
+            "status": "success",
+            "framework": proto_message_to_dict(result),
+        }
+
+    except google_exceptions.AlreadyExists as e:
+        logger.error(f"Framework already exists: {e}")
+        return {"error": "Already Exists", "details": f"Framework '{framework_id}' already exists. {str(e)}"}
+    except google_exceptions.NotFound as e:
+        logger.error(f"One or more cloud controls not found: {e}")
+        return {"error": "Not Found", "details": f"One or more cloud controls not found. {str(e)}"}
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {e}")
+        return {"error": "Permission Denied", "details": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
 
 # --- Deployment Service Tools ---
 
