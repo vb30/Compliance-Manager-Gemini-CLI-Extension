@@ -5,7 +5,7 @@
   "mcpServers": {
     "compliance-manager-mcp": {
       "command": "run_mcp.sh",
-      "args": [],
+      "args": ["--alsologtostderr"],
       "env": {}
     }
   },

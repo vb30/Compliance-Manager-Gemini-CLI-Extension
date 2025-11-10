@@ -1,7 +1,7 @@
 #!/bin/bash
-
+./install.sh
 # Set Google Cloud Project
-export GOOGLE_CLOUD_PROJECT="cpt-poc-1"
+export GOOGLE_CLOUD_PROJECT="control-testing-13-473714"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🚀 Starting Gemini CLI with Compliance Manager Extension"
@@ -11,5 +11,5 @@ echo "Project: $GOOGLE_CLOUD_PROJECT"
 echo ""
 
 # Start Gemini CLI
-gemini
+gemini --debug
 
