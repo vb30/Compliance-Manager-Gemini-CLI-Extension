@@ -27,9 +27,7 @@ from google.cloud.cloudsecuritycompliance_v1.types import (
     CreateCloudControlRequest,
     CreateFrameworkDeploymentRequest,
     CreateFrameworkRequest,
-    DeleteCloudControlRequest,
     DeleteFrameworkDeploymentRequest,
-    DeleteFrameworkRequest,
     Framework,
     FrameworkReference,
     FrameworkDeployment,
@@ -42,11 +40,14 @@ from google.cloud.cloudsecuritycompliance_v1.types import (
     ListFrameworkDeploymentsRequest,
     ListFrameworksRequest,
     TargetResourceConfig,
-    UpdateCloudControlRequest,
-    UpdateFrameworkRequest,
     EnforcementMode,
     CloudControlDetails,
     CloudControlMetadata,
+    Rule,
+    CELExpression,
+    StringList,
+    Severity,
+    RuleActionType,
 )
 from google.protobuf import json_format
 from mcp.server.fastmcp import FastMCP
@@ -61,7 +62,7 @@ mcp = FastMCP("compliance-manager-mcp")
 logging.basicConfig(
     level=logging.INFO,
     stream=sys.stderr,  # Send all logs to stderr, not stdout
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("compliance-manager-mcp")
 logger.setLevel(logging.INFO)
@@ -110,54 +111,71 @@ def fetch_lro_status(lro_name: str) -> Dict[str, Any]:
             if operation_result.done:
                 if operation_result.HasField("error"):
                     logger.error(f"LRO {lro_name} failed: {operation_result.error}")
-                    return {"result": "failed"}
+                    return {"result": "failed",
+                            "error": operation_result.error.message}
                 else:
                     logger.info(f"LRO {lro_name} completed successfully.")
                     return {"result": "passed"}
             else:
-                logger.debug(f"LRO {lro_name} is still in progress... (Attempt {i + 1})")
+                logger.debug(
+                    f"LRO {lro_name} is still in progress... (Attempt {i + 1})"
+                )
                 time.sleep(10)
         except google_exceptions.GoogleAPICallError as e:
-            logger.error(f"Error calling GetOperation for {lro_name}: {e}", exc_info=True)
+            logger.error(
+                f"Error calling GetOperation for {lro_name}: {e}", exc_info=True
+            )
             return {"result": "failed", "error": str(e)}
         except Exception as e:
-            logger.error(f"Unexpected error fetching LRO status for {lro_name}: {e}", exc_info=True)
+            logger.error(
+                f"Unexpected error fetching LRO status for {lro_name}: {e}",
+                exc_info=True,
+            )
             return {"result": "failed", "error": f"Unexpected error: {str(e)}"}
 
     logger.warning(f"LRO {lro_name} timed out after 300 seconds.")
     return {"result": "timeout"}
 
-def create_cloud_control_metadata_list(cloud_controls: str, parent: str) -> list[CloudControlMetadata]:
-    cloud_control_metadata_list = []
-    for control_entry in cloud_controls.split(','):
 
+def create_cloud_control_metadata_list(
+    cloud_controls: str, parent: str
+) -> list[CloudControlMetadata]:
+    cloud_control_metadata_list = []
+
+    for control_entry in cloud_controls.split(","):
         control_entry = control_entry.strip()
         if not control_entry:
             continue
 
         # Split control ID and revision
-        parts = control_entry.split('#')
-        if len(parts) != 2:
-            print(f"Skipping malformed entry: {control_entry} - missing # or too many #")
+        parts = control_entry.split("#")           
+        
+        enforcement_mode_str = "DETECTIVE"
+        if len(parts) == 2:
+            cloud_control_id, major_revision_str = parts
+        elif len(parts) == 3:
+            cloud_control_id, major_revision_str, enforcement_mode_str = parts
+        else:
+            print(
+                f"Skipping malformed entry: {control_entry} - missing # or too many #"
+            )
             continue
 
-        cloud_control_id, major_revision_str = parts
-        
         if not major_revision_str.isdigit():
-            print(f"Skipping non-integer revision: {major_revision_str} in {control_entry}")
+            print(
+                f"Skipping non-integer revision: {major_revision_str} in {control_entry}"
+            )
             continue
 
         major_revision_id = int(major_revision_str)
-
-        # Construct the full control name
-        # control_name = f"{parent_with_location}/cloudControls/{cloud_control_id}"
-
         print(f"ID: {cloud_control_id}, Major: {major_revision_id}")
 
-
         cloud_control_metadata = CloudControlMetadata(
-            cloud_control_details=CloudControlDetails(name=f"{parent}/cloudControls/{cloud_control_id}", major_revision_id=major_revision_id),
-            enforcement_mode=EnforcementMode.DETECTIVE
+            cloud_control_details=CloudControlDetails(
+                name=f"{parent}/cloudControls/{cloud_control_id}",
+                major_revision_id=major_revision_id,
+            ),
+            enforcement_mode=EnforcementMode[enforcement_mode_str],
         )
         cloud_control_metadata_list.append(cloud_control_metadata)
     return cloud_control_metadata_list
@@ -167,7 +185,7 @@ def create_cloud_control_metadata_list(cloud_controls: str, parent: str) -> list
 @mcp.tool()
 async def list_frameworks(
     organization_id: str,
-    location: str = "global",
+    page_token: str = "",
     page_size: int = 50,
 ) -> Dict[str, Any]:
     """Name: list_frameworks
@@ -176,36 +194,40 @@ async def list_frameworks(
                  (e.g., CIS, NIST, FedRAMP) or custom-defined.
     Parameters:
     organization_id (required): The Google Cloud organization ID (e.g., '123456789012').
-    location (optional): The location for the frameworks. Defaults to 'global'.
     page_size (optional): Maximum number of frameworks to return. Defaults to 50.
+    page_token (optional): Token to get the next page. Passed by default by gemini.
     """
     if not config_client:
         return {"error": "Config Client not initialized."}
 
-    parent = f"organizations/{organization_id}/locations/{location}"
+    parent = f"organizations/{organization_id}/locations/global"
     logger.info(f"Listing frameworks for parent: {parent}")
 
     try:
         request = ListFrameworksRequest(
             parent=parent,
             page_size=page_size,
+            page_token=page_token,
         )
-        
+
         response_pager = config_client.list_frameworks(request=request)
-        
+
         frameworks = []
-        for framework in response_pager:
+        for framework in response_pager.frameworks:
             framework_dict = proto_message_to_dict(framework)
             frameworks.append(framework_dict)
 
         return {
             "frameworks": frameworks,
-            "count": len(frameworks),
+            "page_token": response_pager.next_page_token
         }
 
     except google_exceptions.NotFound as e:
         logger.error(f"Organization not found: {e}")
-        return {"error": "Not Found", "details": f"Could not find organization '{organization_id}'. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"Could not find organization '{organization_id}'. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -218,7 +240,7 @@ async def list_frameworks(
 async def get_framework(
     organization_id: str,
     framework_id: str,
-    location: str = "global",
+    major_revision_id: int = 0,
 ) -> Dict[str, Any]:
     """Name: get_framework
 
@@ -227,23 +249,26 @@ async def get_framework(
     Parameters:
     organization_id (required): The Google Cloud organization ID.
     framework_id (required): The ID of the framework to retrieve.
-    location (optional): The location for the framework. Defaults to 'global'.
+    major_revision_id (optional): The framework version to retrieve. If not specified, the most recent one is retrieved.
     """
     if not config_client:
         return {"error": "Config Client not initialized."}
 
-    name = f"organizations/{organization_id}/locations/{location}/frameworks/{framework_id}"
+    name = f"organizations/{organization_id}/locations/global/frameworks/{framework_id}"
     logger.info(f"Getting framework: {name}")
 
     try:
-        request = GetFrameworkRequest(name=name)
+        request = GetFrameworkRequest(name=name, major_revision_id=major_revision_id)
         framework = config_client.get_framework(request=request)
 
         return proto_message_to_dict(framework)
 
     except google_exceptions.NotFound as e:
         logger.error(f"Framework not found: {e}")
-        return {"error": "Not Found", "details": f"Could not find framework '{framework_id}'. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"Could not find framework '{framework_id}'. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -255,7 +280,7 @@ async def get_framework(
 @mcp.tool()
 async def list_cloud_controls(
     organization_id: str,
-    location: str = "global",
+    page_token: str = "",
     page_size: int = 50,
 ) -> Dict[str, Any]:
     """Name: list_cloud_controls
@@ -264,36 +289,40 @@ async def list_cloud_controls(
                  that help meet compliance requirements.
     Parameters:
     organization_id (required): The Google Cloud organization ID.
-    location (optional): The location for the cloud controls. Defaults to 'global'.
     page_size (optional): Maximum number of cloud controls to return. Defaults to 50.
+    page_token (optional): Token to get the next page. Passed by default by gemini.
     """
     if not config_client:
         return {"error": "Config Client not initialized."}
 
-    parent = f"organizations/{organization_id}/locations/{location}"
+    parent = f"organizations/{organization_id}/locations/global"
     logger.info(f"Listing cloud controls for parent: {parent}")
 
     try:
         request = ListCloudControlsRequest(
             parent=parent,
             page_size=page_size,
+            page_token=page_token,
         )
 
         response_pager = config_client.list_cloud_controls(request=request)
 
         cloud_controls = []
-        for control in response_pager:
+        for control in response_pager.cloud_controls:
             control_dict = proto_message_to_dict(control)
             cloud_controls.append(control_dict)
 
         return {
             "cloud_controls": cloud_controls,
-            "count": len(cloud_controls),
+            "page_token": response_pager.next_page_token
         }
 
     except google_exceptions.NotFound as e:
         logger.error(f"Organization not found: {e}")
-        return {"error": "Not Found", "details": f"Could not find organization '{organization_id}'. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"Could not find organization '{organization_id}'. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -306,7 +335,6 @@ async def list_cloud_controls(
 async def get_cloud_control(
     organization_id: str,
     cloud_control_id: str,
-    location: str = "global",
 ) -> Dict[str, Any]:
     """Name: get_cloud_control
 
@@ -315,12 +343,11 @@ async def get_cloud_control(
     Parameters:
     organization_id (required): The Google Cloud organization ID.
     cloud_control_id (required): The ID of the cloud control to retrieve.
-    location (optional): The location for the cloud control. Defaults to 'global'.
     """
     if not config_client:
         return {"error": "Config Client not initialized."}
 
-    name = f"organizations/{organization_id}/locations/{location}/cloudControls/{cloud_control_id}"
+    name = f"organizations/{organization_id}/locations/global/cloudControls/{cloud_control_id}"
     logger.info(f"Getting cloud control: {name}")
 
     try:
@@ -331,7 +358,10 @@ async def get_cloud_control(
 
     except google_exceptions.NotFound as e:
         logger.error(f"Cloud control not found: {e}")
-        return {"error": "Not Found", "details": f"Could not find cloud control '{cloud_control_id}'. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"Could not find cloud control '{cloud_control_id}'. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -339,17 +369,18 @@ async def get_cloud_control(
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
         return {"error": "An unexpected error occurred", "details": str(e)}
 
+
 @mcp.tool()
 async def create_cloud_control(
     organization_id: str,
     cloud_control_id: str,
     display_name: str,
-    description: str,
-    resource_type: str,
+    resource_types: str,
     cel_expression: str,
+    rule_action_types: str,
+    description: str = "",
     severity: str = "MEDIUM",
     remediation_instructions: str = "",
-    location: str = "global",
 ) -> Dict[str, Any]:
     """Name: create_cloud_control
     Description: Creates a custom cloud control with CEL-based detection logic. Custom cloud controls allow you to
@@ -359,9 +390,9 @@ async def create_cloud_control(
     organization_id (required): The Google Cloud organization ID (e.g., "123456789012").
     cloud_control_id (required): Unique identifier for the cloud control (e.g., "require-secure-boot").
     display_name (required): Human-readable name for the cloud control.
-    description (required): Description of what the cloud control checks for.
-    resource_type (required): Cloud Asset Inventory resource type to evaluate (e.g., "compute.googleapis.com/Instance",
-                             "storage.googleapis.com/Bucket", "sqladmin.googleapis.com/Instance").
+    resource_types (required): Comma separated Cloud Asset Inventory resource types to evaluate 
+                               (e.g., "compute.googleapis.com/Instance,storage.googleapis.com/Bucket",
+                                "sqladmin.googleapis.com/Instance").
     cel_expression (required): CEL expression that evaluates to FALSE to trigger a finding.
                               The expression evaluates properties of the resource as defined in Cloud Asset Inventory.
                               CEL Expression Rules:
@@ -382,9 +413,11 @@ async def create_cloud_control(
                                 "resource.data.name.matches('^gcp-vm-(linux|windows)-v\\\\d+$')"
                               - Check if service is enabled (for serviceusage.googleapis.com/Service):
                                 "resource.data.state == 'ENABLED' && !resource.data.name.matches('storage-api.googleapis.com')"
+    rule_action_types (reqired): Comma separated list of the functionalities that are enabled by the rule, possible values are a combination of PREVENTIVE, DETECTIVE, AUDIT actions.
+        (e.g. "PREVENTIVE,AUDIT" or "PREVENTIVE,DETECTIVE,AUDIT", "PREVENTIVE,DETECTIVE", etc) 
+    description (optional): Description of what the cloud control checks for.
     severity (optional): Finding severity level. One of: "CRITICAL", "HIGH", "MEDIUM", "LOW". Defaults to "MEDIUM".
     remediation_instructions (optional): Instructions for remediating findings from this control.
-    location (optional): Location for the cloud control. Defaults to 'global'.
     Returns: Dictionary with status and created cloud control details.
     Example:
         create_cloud_control(
@@ -403,17 +436,42 @@ async def create_cloud_control(
     if not config_client:
         return {"error": "Config Client not initialized."}
 
-    parent = f"organizations/{organization_id}/locations/{location}"
+    parent = f"organizations/{organization_id}/locations/global"
     logger.info(f"Creating cloud control '{cloud_control_id}' in parent: {parent}")
-    logger.info(f"Resource type: {resource_type}, CEL expression: {cel_expression}")
+    logger.info(f"Resource type: {resource_types}, CEL expression: {cel_expression}")
 
     try:
         # Note: The CloudControl message structure may need to be adjusted based on the actual API
         # The current implementation creates a basic cloud control
         # CEL expression and resource type configuration may need to be set through additional API calls
+        resource_type_values = []
+        for value in resource_types.split(","):
+            resource_type_values.append(value.strip())
+
+        rule_action_types_array = []
+        for rule_action_type in rule_action_types.split(","):
+            match rule_action_type:
+                case "PREVENTIVE":
+                    rule_action_types_array.append(RuleActionType.RULE_ACTION_TYPE_PREVENTIVE)
+                case "DETECTIVE":
+                    rule_action_types_array.append(RuleActionType.RULE_ACTION_TYPE_DETECTIVE)
+                case "AUDIT":
+                    rule_action_types_array.append(RuleActionType.RULE_ACTION_TYPE_AUDIT)
+        
+        rule = Rule(
+            cel_expression = CELExpression(
+                expression = cel_expression,
+                resource_types_values = StringList(values=resource_type_values),
+            ),
+            rule_action_types = rule_action_types_array,
+        )
+        
         cloud_control = CloudControl(
-            display_name=display_name,
-            description=description,
+            display_name = display_name,
+            description = description,
+            rules = [rule],
+            severity = Severity[severity],
+            remediation_steps = remediation_instructions,
         )
 
         request = CreateCloudControlRequest(
@@ -428,7 +486,7 @@ async def create_cloud_control(
             "status": "success",
             "cloud_control": proto_message_to_dict(result),
             "configuration": {
-                "resource_type": resource_type,
+                "resource_type": resource_types,
                 "cel_expression": cel_expression,
                 "severity": severity,
                 "remediation_instructions": remediation_instructions,
@@ -438,7 +496,10 @@ async def create_cloud_control(
 
     except google_exceptions.AlreadyExists as e:
         logger.error(f"Cloud control already exists: {e}")
-        return {"error": "Already Exists", "details": f"Cloud control '{cloud_control_id}' already exists. {str(e)}"}
+        return {
+            "error": "Already Exists",
+            "details": f"Cloud control '{cloud_control_id}' already exists. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -452,38 +513,41 @@ async def create_framework(
     organization_id: str,
     framework_id: str,
     display_name: str,
-    description: str,
-    cloud_control_ids: List[str],
-    location: str = "global",
+    cloud_control_ids: str,
+    description: str = "",
 ) -> Dict[str, Any]:
     """Name: create_framework
     Description: Creates a custom compliance framework. Frameworks are collections of cloud controls that help
-                 meet specific compliance requirements.
+        meet specific compliance requirements.
     Parameters:
     organization_id (required): The Google Cloud organization ID.
     framework_id (required): The ID for the new framework (must be unique).
     display_name (required): A human-readable name for the framework.
-    description (required): A description of the framework's purpose.
-    cloud_control_ids (required): List of cloud control IDs to include in this framework.
-    location (optional): The location for the framework. Defaults to 'global'.
+    cloud_control_ids (required): This is a comma separated list of could_control ids.
+    description (optional): A description of the framework's purpose.
     """
     if not config_client:
         return {"error": "Config Client not initialized."}
 
-    parent = f"organizations/{organization_id}/locations/{location}"
+    parent = f"organizations/{organization_id}/locations/global"
     logger.info(f"Creating framework '{framework_id}' in parent: {parent}")
 
     try:
         # Build cloud control references
-        cloud_controls = [
-            f"organizations/{organization_id}/locations/{location}/cloudControls/{control_id}"
-            for control_id in cloud_control_ids
-        ]
+        cloud_control_detail_list = []
+        for cloud_control_id in cloud_control_ids.split(","):
+            if not cloud_control_id:
+                print(f"skipping malformed cloud control id: {cloud_control_id}")
+            cloud_control_detail = CloudControlDetails(
+                name=f"{parent}/cloudControls/{cloud_control_id.strip()}",
+            )
+            cloud_control_detail_list.append(cloud_control_detail)
 
         framework = Framework(
-            display_name=display_name,
-            description=description,
-            cloud_controls=cloud_controls,
+            name = f"{parent}/frameworks/{framework_id}",
+            display_name = display_name,
+            description = description,
+            cloud_control_details = cloud_control_detail_list,
         )
 
         request = CreateFrameworkRequest(
@@ -501,10 +565,16 @@ async def create_framework(
 
     except google_exceptions.AlreadyExists as e:
         logger.error(f"Framework already exists: {e}")
-        return {"error": "Already Exists", "details": f"Framework '{framework_id}' already exists. {str(e)}"}
+        return {
+            "error": "Already Exists",
+            "details": f"Framework '{framework_id}' already exists. {str(e)}",
+        }
     except google_exceptions.NotFound as e:
         logger.error(f"One or more cloud controls not found: {e}")
-        return {"error": "Not Found", "details": f"One or more cloud controls not found. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"One or more cloud controls not found. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -512,49 +582,55 @@ async def create_framework(
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
         return {"error": "An unexpected error occurred", "details": str(e)}
 
+
 # --- Deployment Service Tools ---
+
 
 @mcp.tool()
 async def list_framework_deployments(
-    parent: str,
-    location: str = "global",
+    organization_id: str,
+    page_token: str = "",
     page_size: int = 50,
 ) -> Dict[str, Any]:
     """Name: list_framework_deployments
 
-    Description: Lists all framework deployments for a given parent resource (organization, folder, or project).
+    Description: Lists all framework deployments for a given organization.
     Parameters:
-    parent (required): The parent resource in format 'organizations/{org_id}', 'folders/{folder_id}', or 'projects/{project_id}'.
-    location (optional): The location for the deployments. Defaults to 'global'.
+    organization_id (required): The Google Cloud organization ID (e.g., '123456789012')
+    page_token (optional): Token to get the next page. Passed by default by gemini.
     page_size (optional): Maximum number of deployments to return. Defaults to 50.
     """
     if not deployment_client:
         return {"error": "Deployment Client not initialized."}
 
-    parent_with_location = f"{parent}/locations/{location}"
+    parent_with_location = f"organizations/{organization_id}/locations/global"
     logger.info(f"Listing framework deployments for parent: {parent_with_location}")
 
     try:
         request = ListFrameworkDeploymentsRequest(
-            parent=parent_with_location,
-            page_size=page_size,
+            parent = parent_with_location,
+            page_size = page_size,
+            page_token = page_token,
         )
 
         response_pager = deployment_client.list_framework_deployments(request=request)
 
         deployments = []
-        for deployment in response_pager:
+        for deployment in response_pager.framework_deployments:
             deployment_dict = proto_message_to_dict(deployment)
             deployments.append(deployment_dict)
 
         return {
             "framework_deployments": deployments,
-            "count": len(deployments),
+            "page_token": response_pager.next_page_token,
         }
 
     except google_exceptions.NotFound as e:
         logger.error(f"Parent resource not found: {e}")
-        return {"error": "Not Found", "details": f"Could not find parent resource '{parent}'. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"Could not find the org '{organization_id}'. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -565,22 +641,22 @@ async def list_framework_deployments(
 
 @mcp.tool()
 async def get_framework_deployment(
-    parent: str,
+    organization_id: str,
     framework_deployment_id: str,
-    location: str = "global",
 ) -> Dict[str, Any]:
     """Name: get_framework_deployment
 
     Description: Gets detailed information about a specific framework deployment, including its state and configuration.
     Parameters:
-    parent (required): The parent resource in format 'organizations/{org_id}', 'folders/{folder_id}', or 'projects/{project_id}'.
+    organization_id (required): The Google Cloud organization ID (e.g., '123456789012')
     framework_deployment_id (required): The ID of the framework deployment to retrieve.
-    location (optional): The location for the deployment. Defaults to 'global'.
     """
     if not deployment_client:
         return {"error": "Deployment Client not initialized."}
 
-    name = f"{parent}/locations/{location}/frameworkDeployments/{framework_deployment_id}"
+    name = (
+        f"organizations/{organization_id}/locations/global/frameworkDeployments/{framework_deployment_id}"
+    )
     logger.info(f"Getting framework deployment: {name}")
 
     try:
@@ -591,7 +667,10 @@ async def get_framework_deployment(
 
     except google_exceptions.NotFound as e:
         logger.error(f"Framework deployment not found: {e}")
-        return {"error": "Not Found", "details": f"Could not find framework deployment '{framework_deployment_id}'. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"Could not find framework deployment '{framework_deployment_id}'. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -602,12 +681,11 @@ async def get_framework_deployment(
 
 @mcp.tool()
 async def create_framework_deployment(
-    parent: str,
+    organization_id: str,
     framework_deployment_id: str,
     framework_name: str,
     cloud_controls: str,
-    framework_version: int = None,
-    location: str = "global",
+    framework_version: int,
     target_resource: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Name: create_framework_deployment
@@ -615,31 +693,33 @@ async def create_framework_deployment(
     Description: Creates a new framework deployment on a target resource. This applies a compliance framework
                  to an organization, folder, or project. This is a long-running operation.
     Parameters:
-    parent (required): The parent resource in format 'organizations/{org_id}', 'folders/{folder_id}', or 'projects/{project_id}'.
+    organization_id (required): The Google Cloud organization ID (e.g., '123456789012')
     framework_deployment_id (required): The ID for the new framework deployment.
     framework_name (required): The full name of the framework to deploy (e.g., 'organizations/{org_id}/locations/global/frameworks/{framework_id}').
     cloud_controls (required): This is a comma seperated list of could_control ids along with their revision number seperated by a hash.
-        So the entire string is of format: cloud_control_id1#revision1,cloud_control_id2#revision2.
-    location (optional): The location for the deployment. Defaults to 'global'.
-    target_resource (optional): The target resource name. If not provided, uses the parent resource.
-    framework_version (optional): The major version of the framework. If not specified the latest version of the framework is used.
+        Optionally you can also mention the enforcement mode separate by `#`, if not mentioned/incorrect DETECTIVE is used.
+        So the entire string is of format: cloud_control_id1#revision1#AUDIT,cloud_control_id2#revision2.
+        Possible enforcement modes are: PREVENTIVE, DETECTIVE & AUDIT
+    framework_version (required): The major version of the framework.
+    target_resource (optional): The target resource name. If not provided, uses the organization_id(parent resource).
     """
     if not deployment_client:
         return {"error": "Deployment Client not initialized."}
 
-    parent_with_location = f"{parent}/locations/{location}"
-    complete_framework_deployment_id = f"{parent_with_location}/frameworkDeployments/{framework_deployment_id}"
-    logger.info(f"Creating framework deployment '{framework_deployment_id}' in parent: {parent_with_location}")
+    parent_with_location = f"organizations/{organization_id}/locations/global"
+    logger.info(
+        f"Creating framework deployment '{framework_deployment_id}' in parent: {parent_with_location}, {cloud_controls}"
+    )
 
-    cloud_control_metadata_list = create_cloud_control_metadata_list(cloud_controls, parent_with_location)
+    cloud_control_metadata_list = create_cloud_control_metadata_list(
+        cloud_controls, parent_with_location
+    )
 
     # Set target resource if provided
     if not target_resource:
-        target_resource = parent
+        target_resource = f"organizations/{organization_id}"
 
-    framework_reference = FrameworkReference(framework = framework_name)
-    if framework_version:
-        framework_reference.major_revision_id = framework_version
+    framework_reference = FrameworkReference(framework = framework_name, major_revision_id = framework_version)
 
     try:
         # Create the framework deployment object
@@ -649,7 +729,6 @@ async def create_framework_deployment(
             target_resource_config = TargetResourceConfig(
                 existing_target_resource=target_resource
             ),
-            name = complete_framework_deployment_id
         )
 
         request = CreateFrameworkDeploymentRequest(
@@ -661,21 +740,31 @@ async def create_framework_deployment(
         logger.info(f"Request for create framework deployment {request}")
 
         # This is a long-running operation
-        operation_result = deployment_client.create_framework_deployment(request=request)
+        operation_result = deployment_client.create_framework_deployment(
+            request=request
+        )
 
         # Wait for the operation to complete
-        logger.info(f"Waiting for framework deployment creation to complete...: {operation_result.operation.name}")
+        logger.info(
+            f"Waiting for framework deployment creation to complete...: {operation_result.operation.name}"
+        )
         return fetch_lro_status(operation_result.operation.name)
 
     except google_exceptions.NotFound as e:
         logger.error(f"Parent resource or framework not found: {e}")
-        return {"error": "Not Found", "details": f"Could not find parent resource '{parent}' or framework '{framework_name}'. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"Could not find the organization '{organization_id}' or framework '{framework_name}'. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
     except google_exceptions.AlreadyExists as e:
         logger.error(f"Framework deployment already exists: {e}")
-        return {"error": "Already Exists", "details": f"Framework deployment '{framework_deployment_id}' already exists. {str(e)}"}
+        return {
+            "error": "Already Exists",
+            "details": f"Framework deployment '{framework_deployment_id}' already exists. {str(e)}",
+        }
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
         return {"error": "An unexpected error occurred", "details": str(e)}
@@ -683,37 +772,42 @@ async def create_framework_deployment(
 
 @mcp.tool()
 async def delete_framework_deployment(
-    parent: str,
+    organization_id: str,
     framework_deployment_id: str,
-    location: str = "global",
 ) -> Dict[str, Any]:
     """Name: delete_framework_deployment
 
     Description: Deletes a framework deployment. This removes the compliance framework from the target resource. This is a long-running operation.
     Parameters:
-    parent (required): The parent resource in format 'organizations/{org_id}', 'folders/{folder_id}', or 'projects/{project_id}'.
+    organization_id (required): The Google Cloud organization ID (e.g., '123456789012')
     framework_deployment_id (required): The ID of the framework deployment to delete.
-    location (optional): The location for the deployment. Defaults to 'global'.
     """
     if not deployment_client:
         return {"error": "Deployment Client not initialized."}
 
-    name = f"{parent}/locations/{location}/frameworkDeployments/{framework_deployment_id}"
+    name = f"organizations/{organization_id}/locations/global/frameworkDeployments/{framework_deployment_id}"
     logger.info(f"Deleting framework deployment: {name}")
 
     try:
         request = DeleteFrameworkDeploymentRequest(name=name)
 
         # This is a long-running operation
-        operation_result = deployment_client.delete_framework_deployment(request=request)
+        operation_result = deployment_client.delete_framework_deployment(
+            request=request
+        )
 
         # Wait for the operation to complete
-        logger.info(f"Waiting for framework deployment deletion to complete... LRO Name: {operation_result.operation.name}")
+        logger.info(
+            f"Waiting for framework deployment deletion to complete... LRO Name: {operation_result.operation.name}"
+        )
         return fetch_lro_status(operation_result.operation.name)
 
     except google_exceptions.NotFound as e:
         logger.error(f"Framework deployment not found: {e}")
-        return {"error": "Not Found", "details": f"Could not find framework deployment '{framework_deployment_id}'. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"Could not find framework deployment '{framework_deployment_id}'. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -724,45 +818,51 @@ async def delete_framework_deployment(
 
 @mcp.tool()
 async def list_cloud_control_deployments(
-    parent: str,
-    location: str = "global",
+    organization_id: str,
+    page_token: str = "",
     page_size: int = 50,
 ) -> Dict[str, Any]:
     """Name: list_cloud_control_deployments
 
-    Description: Lists all cloud control deployments for a given parent resource.
+    Description: Lists all cloud control deployments for a given organization.
     Parameters:
-    parent (required): The parent resource in format 'organizations/{org_id}', 'folders/{folder_id}', or 'projects/{project_id}'.
-    location (optional): The location for the deployments. Defaults to 'global'.
+    organization_id (required): The Google Cloud organization ID (e.g., '123456789012')
+    page_token (optional): Token to get the next page. Passed by default by gemini.
     page_size (optional): Maximum number of deployments to return. Defaults to 50.
     """
     if not deployment_client:
         return {"error": "Deployment Client not initialized."}
 
-    parent_with_location = f"{parent}/locations/{location}"
+    parent_with_location = f"organizations/{organization_id}/locations/global"
     logger.info(f"Listing cloud control deployments for parent: {parent_with_location}")
 
     try:
         request = ListCloudControlDeploymentsRequest(
             parent=parent_with_location,
             page_size=page_size,
+            page_token=page_token
         )
 
-        response_pager = deployment_client.list_cloud_control_deployments(request=request)
+        response_pager = deployment_client.list_cloud_control_deployments(
+            request=request
+        )
 
         deployments = []
-        for deployment in response_pager:
+        for deployment in response_pager.cloud_control_deployments:
             deployment_dict = proto_message_to_dict(deployment)
             deployments.append(deployment_dict)
 
         return {
             "cloud_control_deployments": deployments,
-            "count": len(deployments),
+            "page_token": response_pager.next_page_token,
         }
 
     except google_exceptions.NotFound as e:
         logger.error(f"Parent resource not found: {e}")
-        return {"error": "Not Found", "details": f"Could not find parent resource '{parent}'. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"Could not find the organization '{organization_id}'. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -773,23 +873,21 @@ async def list_cloud_control_deployments(
 
 @mcp.tool()
 async def get_cloud_control_deployment(
-    parent: str,
+    organization_id: str,
     cloud_control_deployment_id: str,
-    location: str = "global",
 ) -> Dict[str, Any]:
     """Name: get_cloud_control_deployment
 
     Description: Gets detailed information about a specific cloud control deployment, including its enforcement
                  mode and state.
     Parameters:
-    parent (required): The parent resource in format 'organizations/{org_id}', 'folders/{folder_id}', or 'projects/{project_id}'.
+    organization_id (required): The Google Cloud organization ID (e.g., '123456789012')
     cloud_control_deployment_id (required): The ID of the cloud control deployment to retrieve.
-    location (optional): The location for the deployment. Defaults to 'global'.
     """
     if not deployment_client:
         return {"error": "Deployment Client not initialized."}
 
-    name = f"{parent}/locations/{location}/cloudControlDeployments/{cloud_control_deployment_id}"
+    name = f"organizations/{organization_id}/locations/global/cloudControlDeployments/{cloud_control_deployment_id}"
     logger.info(f"Getting cloud control deployment: {name}")
 
     try:
@@ -800,7 +898,10 @@ async def get_cloud_control_deployment(
 
     except google_exceptions.NotFound as e:
         logger.error(f"Cloud control deployment not found: {e}")
-        return {"error": "Not Found", "details": f"Could not find cloud control deployment '{cloud_control_deployment_id}'. {str(e)}"}
+        return {
+            "error": "Not Found",
+            "details": f"Could not find cloud control deployment '{cloud_control_deployment_id}'. {str(e)}",
+        }
     except google_exceptions.PermissionDenied as e:
         logger.error(f"Permission denied: {e}")
         return {"error": "Permission Denied", "details": str(e)}
@@ -811,13 +912,18 @@ async def get_cloud_control_deployment(
 
 # --- Main execution ---
 
+
 def main() -> None:
     """Runs the FastMCP server."""
     if not config_client:
-        logger.critical("Config Client failed to initialize. MCP server cannot serve config tools.")
+        logger.critical(
+            "Config Client failed to initialize. MCP server cannot serve config tools."
+        )
 
     if not deployment_client:
-        logger.critical("Deployment Client failed to initialize. MCP server cannot serve deployment tools.")
+        logger.critical(
+            "Deployment Client failed to initialize. MCP server cannot serve deployment tools."
+        )
 
     logger.info("Starting Compliance Manager MCP server...")
 
