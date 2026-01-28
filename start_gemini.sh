@@ -1,3 +1,4 @@
+# TODO(vermaharsh): remove this file before making this public
 #!/bin/bash
 ./install.sh
 # Set Google Cloud Project
@@ -11,5 +12,5 @@ echo "Project: $GOOGLE_CLOUD_PROJECT"
 echo ""
 
 # Start Gemini CLI
-gemini --debug
+gemini #--debug
 

@@ -42,7 +42,7 @@ else
         python-dotenv>=1.0.0 \
         typing-extensions>=4.8.0 \
         aiohttp>=3.9.0 \
-        google-cloud-cloudsecuritycompliance>=0.2.0
+        google-cloud-cloudsecuritycompliance>=0.5.0
 fi
 
 # Copy files
