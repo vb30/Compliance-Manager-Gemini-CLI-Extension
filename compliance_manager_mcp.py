@@ -17,8 +17,6 @@ from typing import Any, Dict, List, Optional
 import time
 import sys
 
-from mcp.server.fastmcp import FastMCP
-
 from google.api_core import exceptions as google_exceptions
 from google.api_core import operation
 from google.longrunning import operations_pb2
@@ -51,26 +49,11 @@ from google.cloud.cloudsecuritycompliance_v1.types import (
     Severity,
     RuleActionType,
 )
-from google.cloud.cloudsecuritycompliance_v1.types.audit import (
-    CreateFrameworkAuditRequest,
-    FrameworkAudit,
-    GenerateFrameworkAuditScopeReportRequest,
-    GetFrameworkAuditRequest,
-    ListFrameworkAuditsRequest,
-    FrameworkAuditDestination,
-    BucketDestination,
-)
-from google.cloud.cloudsecuritycompliance_v1.types.cm_enrollment_service import (
-    AuditConfig,
-    CmEnrollment,
-    UpdateCmEnrollmentRequest,
-)
-from google.cloud.cloudsecuritycompliance_v1.services.audit import AuditClient
-from google.cloud.cloudsecuritycompliance_v1.services.cm_enrollment_service import (
-    CmEnrollmentServiceClient,
-)
 from google.protobuf import json_format
-from google.protobuf import field_mask_pb2
+from mcp.server.fastmcp import FastMCP
+
+# Initialize FastMCP server
+mcp = FastMCP("compliance-manager-mcp")
 
 # Configure logging
 # IMPORTANT: MCP requires stdout to be clean JSON only
@@ -83,9 +66,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("compliance-manager-mcp")
 logger.setLevel(logging.INFO)
-
-# Initialize FastMCP server
-mcp = FastMCP("compliance-manager")
 
 # --- Client Initialization ---
 # The clients automatically use Application Default Credentials (ADC).
@@ -104,20 +84,6 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize Deployment Client: {e}", exc_info=True)
     deployment_client = None
-
-try:
-    audit_client = AuditClient()
-    logger.info("Successfully initialized Audit Client.")
-except Exception as e:
-    logger.error(f"Failed to initialize Audit Client: {e}", exc_info=True)
-    audit_client = None
-
-try:
-    enrollment_client = CmEnrollmentServiceClient()
-    logger.info("Successfully initialized Cm Enrollment Service Client.")
-except Exception as e:
-    logger.error(f"Failed to initialize Cm Enrollment Service Client: {e}", exc_info=True)
-    enrollment_client = None
 
 
 # --- Helper Function for Proto to Dict Conversion ---
@@ -269,6 +235,7 @@ async def list_frameworks(
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
         return {"error": "An unexpected error occurred", "details": str(e)}
 
+
 @mcp.tool()
 async def get_framework(
     organization_id: str,
@@ -308,7 +275,6 @@ async def get_framework(
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
         return {"error": "An unexpected error occurred", "details": str(e)}
-
 
 
 @mcp.tool()
@@ -365,7 +331,6 @@ async def list_cloud_controls(
         return {"error": "An unexpected error occurred", "details": str(e)}
 
 
-
 @mcp.tool()
 async def get_cloud_control(
     organization_id: str,
@@ -403,7 +368,6 @@ async def get_cloud_control(
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
         return {"error": "An unexpected error occurred", "details": str(e)}
-
 
 
 @mcp.tool()
@@ -542,6 +506,7 @@ async def create_cloud_control(
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
         return {"error": "An unexpected error occurred", "details": str(e)}
+
 
 @mcp.tool()
 async def create_framework(
@@ -712,7 +677,6 @@ async def get_framework_deployment(
     except Exception as e:
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
         return {"error": "An unexpected error occurred", "details": str(e)}
-
 
 
 @mcp.tool()
@@ -946,203 +910,8 @@ async def get_cloud_control_deployment(
         return {"error": "An unexpected error occurred", "details": str(e)}
 
 
-# --- Audit Manager Tools ---
-
-
-@mcp.tool()
-async def update_cm_enrollment(
-    resource_id: str,
-    gcs_bucket: str,
-) -> Dict[str, Any]:
-    """Name: update_cm_enrollment
-    Description: Updates the Compliance Manager enrollment for a resource.
-    Parameters:
-    resource_id (required): The full resource name can be in one of the following formats: 'organizations/<org_id>', 'folders/<folder_id>' or 'projects/<project_id>'.
-    gcs_bucket (required): The GCS bucket to use for storing audit data. Example: 'gs://<bucket-name>'
-    """
-    if not enrollment_client:
-        return {"error": "Cm Enrollment Service Client not initialized."}
-
-    name = f"{resource_id}/locations/global/cmEnrollment"
-    logger.info(f"Updating CM Enrollment: {name}")
-
-    try:
-        cm_enrollment = CmEnrollment(
-            name=name,
-            audit_config = AuditConfig(
-                destinations = [
-                    AuditConfig.CmEligibleDestination(gcs_bucket=gcs_bucket)
-                ]
-            ),
-            enrolled = True,
-        )
-        
-        request = UpdateCmEnrollmentRequest(
-            cm_enrollment=cm_enrollment,
-        )
-
-        response = enrollment_client.update_cm_enrollment(request=request)
-        return proto_message_to_dict(response)
-
-    except google_exceptions.PermissionDenied as e:
-        logger.error(f"Permission denied: {e}")
-        return {"error": "Permission Denied", "details": str(e)}
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-        return {"error": "An unexpected error occurred", "details": str(e)}
-
-
-@mcp.tool()
-async def generate_framework_audit_scope_report(
-    resource_id: str,
-    compliance_framework: str,
-) -> Dict[str, Any]:
-    """Name: generate_framework_audit_scope_report
-    Description: Generates a scope report for a framework audit to see what would be audited.
-    Parameters:
-    resource_id (required): The full resource name. It can be in one of the following formats: 'organizations/<org_id>', 'folders/<folder_id>' or 'projects/<project_id>'.
-    compliance_framework (required): The framework ID (e.g., 'nist-800-53'). Format: organizations/<org_id>/locations/global/frameworks/<framework_id>
-    """
-    if not audit_client:
-        return {"error": "Audit Client not initialized."}
-
-    scope = f"{resource_id}/locations/global"
-    logger.info(f"Generating audit scope report for {scope}, framework {compliance_framework}")
-
-    try:
-        request = GenerateFrameworkAuditScopeReportRequest(
-            scope=scope,
-            compliance_framework=compliance_framework,
-            report_format = GenerateFrameworkAuditScopeReportRequest.Format.ODF
-        )
-
-        response = audit_client.generate_framework_audit_scope_report(request=request)
-        return proto_message_to_dict(response)
-
-    except Exception as e:
-        logger.error(f"Error generating audit scope report: {e}", exc_info=True)
-        return {"error": "Error generating report", "details": str(e)}
-
-
-@mcp.tool()
-async def create_framework_audit(
-    resource_id: str,
-    compliance_framework: str,
-    bucket_name: str,
-) -> Dict[str, Any]:
-    """Name: create_framework_audit
-    Description: Creates a new framework audit.
-    Parameters:
-    resource_id (required): The parent resource name. It can be in one of the following formats: 'organizations/<org_id>', 'folders/<folder_id>' or 'projects/<project_id>'.
-    compliance_framework (required): The framework ID (e.g., 'nist-800-53'). Format: organizations/<org_id>/locations/global/frameworks/<framework_id>
-    bucket_name (required): The GCS bucket name to store audit results. Format: 'gs://<bucket-name>'
-    """
-    if not audit_client:
-        return {"error": "Audit Client not initialized."}
-
-    parent = f"{resource_id}/locations/global"
-    logger.info(f"Creating framework audit for {compliance_framework} in {parent}")
-
-    try:
-        framework_name = f"{parent}/frameworks/{compliance_framework}"
-        
-        frameworkAudit = FrameworkAudit(
-            compliance_framework=compliance_framework,
-            framework_audit_destination=FrameworkAuditDestination(
-                bucket=BucketDestination(
-                    bucket_uri=bucket_name,
-                    framework_audit_format=BucketDestination.Format.ODF
-                )
-            ),
-        )
-
-        request = CreateFrameworkAuditRequest(
-            parent=parent,
-            framework_audit=frameworkAudit,
-        )
-
-        operation = audit_client.create_framework_audit(request=request)
-        
-        if hasattr(operation, 'operation'):
-            return {"operation": operation.operation.name, "status": "started"}
-        
-        return proto_message_to_dict(operation)
-
-    except Exception as e:
-        logger.error(f"Error creating framework audit: {e}", exc_info=True)
-        return {"error": "Error creating audit", "details": str(e)}
-
-
-@mcp.tool()
-async def list_framework_audits(
-    resource_id: str,
-    page_size: int = 50,
-    page_token: str = "",
-) -> Dict[str, Any]:
-    """Name: list_framework_audits
-    Description: Lists existing framework audits.
-    Parameters:
-    resource_id (required): The parent resource name. It can be in one of the following formats: 'organizations/<org_id>', 'folders/<folder_id>' or 'projects/<project_id>'.
-    page_size (optional): The maximum number of results to return.
-    page_token (optional): The page token to use for pagination.
-    """
-    if not audit_client:
-        return {"error": "Audit Client not initialized."}
-
-    parent = f"{resource_id}/locations/global"
-    logger.info(f"Listing framework audits for {parent}")
-
-    try:
-        request = ListFrameworkAuditsRequest(
-            parent=parent,
-            page_size=page_size,
-            page_token=page_token,
-        )
-
-        response = audit_client.list_framework_audits(request=request)
-        
-        audits = []
-        for audit in response.framework_audits:
-            audits.append(proto_message_to_dict(audit))
-
-        return {
-            "framework_audits": audits,
-            "next_page_token": response.next_page_token,
-        }
-
-    except Exception as e:
-        logger.error(f"Error listing framework audits: {e}", exc_info=True)
-        return {"error": "Error listing audits", "details": str(e)}
-
-
-@mcp.tool()
-async def get_framework_audit(
-    resource_id: str,
-    audit_id: str,
-) -> Dict[str, Any]:
-    """Name: get_framework_audit
-    Description: Gets details of a specific framework audit.
-    Parameters:
-    resource_id (required): The parent resource name. It can be in one of the following formats: 'organizations/<org_id>', 'folders/<folder_id>' or 'projects/<project_id>'.
-    audit_id (required): The audit ID.
-    """
-    if not audit_client:
-        return {"error": "Audit Client not initialized."}
-
-    name = f"{resource_id}/locations/global/frameworkAudits/{audit_id}"
-    logger.info(f"Getting framework audit {name}")
-
-    try:
-        request = GetFrameworkAuditRequest(name=name)
-        response = audit_client.get_framework_audit(request=request)
-        return proto_message_to_dict(response)
-
-    except Exception as e:
-        logger.error(f"Error getting framework audit: {e}", exc_info=True)
-        return {"error": "Error getting audit", "details": str(e)}
-
-
 # --- Main execution ---
+
 
 def main() -> None:
     """Runs the FastMCP server."""
@@ -1156,12 +925,6 @@ def main() -> None:
             "Deployment Client failed to initialize. MCP server cannot serve deployment tools."
         )
 
-    # if not audit_client:
-    #     logger.critical("Audit Client failed to initialize. MCP server cannot serve audit tools.")
-    
-    if not enrollment_client:
-        logger.critical("Enrollment Client failed to initialize. MCP server cannot serve enrollment tools.")
-    
     logger.info("Starting Compliance Manager MCP server...")
 
     mcp.run(transport="stdio")
