@@ -5,7 +5,7 @@
 export GOOGLE_CLOUD_PROJECT="control-testing-13-473714"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🚀 Starting Gemini CLI with Compliance Manager Extension"
+echo "🚀 Starting Gemini CLI with Audit and Compliance Manager Extension"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "Project: $GOOGLE_CLOUD_PROJECT"

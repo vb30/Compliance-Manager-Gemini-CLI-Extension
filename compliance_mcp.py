@@ -18,6 +18,8 @@ import time
 import sys
 
 from google.api_core import exceptions as google_exceptions
+from google.cloud import auditmanager_v1
+from google.api_core.client_options import ClientOptions
 from google.api_core import operation
 from google.longrunning import operations_pb2
 from google.cloud.cloudsecuritycompliance_v1.services.config import ConfigClient
@@ -53,7 +55,7 @@ from google.protobuf import json_format
 from mcp.server.fastmcp import FastMCP
 
 # Initialize FastMCP server
-mcp = FastMCP("compliance-manager-mcp")
+mcp = FastMCP("compliance-mcp")
 
 # Configure logging
 # IMPORTANT: MCP requires stdout to be clean JSON only
@@ -64,7 +66,7 @@ logging.basicConfig(
     stream=sys.stderr,  # Send all logs to stderr, not stdout
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
-logger = logging.getLogger("compliance-manager-mcp")
+logger = logging.getLogger("compliance-mcp")
 logger.setLevel(logging.INFO)
 
 # --- Client Initialization ---
@@ -84,6 +86,13 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize Deployment Client: {e}", exc_info=True)
     deployment_client = None
+
+try:
+    audit_manager_client = auditmanager_v1.AuditManagerClient()
+    logger.info("Successfully initialized Audit Manager Client.")
+except Exception as e:
+    logger.error(f"Failed to initialize Audit Manager Client: {e}", exc_info=True)
+    audit_manager_client = None
 
 
 # --- Helper Function for Proto to Dict Conversion ---
@@ -909,6 +918,302 @@ async def get_cloud_control_deployment(
         logger.error(f"An unexpected error occurred: {e}", exc_info=True)
         return {"error": "An unexpected error occurred", "details": str(e)}
 
+# --- Audit Manager Tools ---
+
+@mcp.tool()
+def enroll_resource(
+    scope: str,
+    destinations: List[str],
+    location: str = "global",
+) -> Dict[str, Any]:
+    """Name: enroll_resource
+
+    Description: Enrolls a resource (organization, folder, or project) in Audit Manager.
+    Parameters:
+    scope (required): The resource to enroll. Format: 'organizations/<org_id>', 'folders/<folder_id>', 'projects/<project_id>'.
+    destinations (required): A list of GCS bucket URIs for report delivery. Format: ["gs://<bucket_name>"]
+    location (optional): The location of the resource. Defaults to "global".
+    """
+    if not audit_manager_client:
+        return {"error": "Audit Manager Client not initialized"}
+
+    scope = scope + "/locations/" + location
+    logger.info(f"Enrolling resource: {scope} with destinations: {destinations}")
+
+    try:
+        destination_objs = []
+        for dest in destinations:
+            destination_objs.append(
+                auditmanager_v1.EnrollResourceRequest.EligibleDestination(
+                    eligible_gcs_bucket=dest
+                )
+            )
+
+        request = auditmanager_v1.EnrollResourceRequest(
+            scope=scope,
+            destinations=destination_objs,
+        )
+
+        enrollment = audit_manager_client.enroll_resource(request=request)
+        return proto_message_to_dict(enrollment)
+
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {e}")
+        return {"error": "Permission Denied", "details": str(e)}
+    except Exception as e:
+        logger.error(f"Error enrolling resource: {e}", exc_info=True)
+        return {"error": "Internal Error", "details": str(e)}
+
+
+@mcp.tool()
+def generate_audit_scope_report(
+    scope: str,
+    compliance_standard: str,
+    location: str = "global",
+) -> Dict[str, Any]:
+    """Name: generate_audit_scope_report
+
+    Description: Generates an audit scope report for a given scope and standard.
+    Parameters:
+    scope (required): The resource scope. Format: 'folders/<folder_id>' or 'projects/<project_id>'.
+    compliance_standard (required): The compliance standard (e.g., "FEDRAMP_MODERATE").
+    location (optional): The location of the resource. Defaults to "global".
+    """
+    if not audit_manager_client:
+        return {"error": "Audit Manager Client not initialized"}
+
+    scope = scope + "/locations/" + location
+    logger.info(f"Generating audit scope report for scope: {scope}, compliance_standard: {compliance_standard}")
+
+    try:
+        request = auditmanager_v1.GenerateAuditScopeReportRequest(
+            scope=scope,
+            compliance_standard=compliance_standard,
+            report_format=auditmanager_v1.GenerateAuditScopeReportRequest.AuditScopeReportFormat.AUDIT_SCOPE_REPORT_FORMAT_ODF,
+        )
+
+        response = audit_manager_client.generate_audit_scope_report(request=request)
+        return proto_message_to_dict(response)
+
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {e}")
+        return {"error": "Permission Denied", "details": str(e)}
+    except Exception as e:
+        logger.error(f"Error generating audit scope report: {e}", exc_info=True)
+        return {"error": "Internal Error", "details": str(e)}
+
+
+@mcp.tool()
+def generate_audit_report(
+    scope: str,
+    gcs_uri: str,
+    compliance_standard: str,
+    location: str = "global",
+) -> Dict[str, Any]:
+    """Name: generate_audit_report
+
+    Description: Generates an audit report. This is a long-running operation.
+    Parameters:
+    scope (required): The resource scope. It can be in one of the following formats: 'folders/<folder_id>' or 'projects/<project_id>'.
+    gcs_uri (required): The destination GCS bucket URI. Format: "gs://<bucket_name>"
+    compliance_standard (required): The compliance standard (e.g., "FEDRAMP_MODERATE").
+    location (optional): The location of the resource. Defaults to "global".
+    """
+    if not audit_manager_client:
+        return {"error": "Audit Manager Client not initialized"}
+
+    scope = scope + "/locations/" + location
+    logger.info(f"Generating audit report for scope: {scope} to {gcs_uri}")
+
+    try:
+        request = auditmanager_v1.GenerateAuditReportRequest(
+            scope=scope,
+            gcs_uri=gcs_uri,
+            compliance_standard=compliance_standard,
+            report_format=auditmanager_v1.GenerateAuditReportRequest.AuditReportFormat.AUDIT_REPORT_FORMAT_ODF,
+        )
+
+        operation = audit_manager_client.generate_audit_report(request=request)
+        # Return the operation name so the user can check status if needed.
+        return {
+            "operation_name": operation.operation.name,
+            "status": "IN_PROGRESS",
+            "details": "Audit report generation started. Check status using client tools or console."
+        }
+
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {e}")
+        return {"error": "Permission Denied", "details": str(e)}
+    except Exception as e:
+        logger.error(f"Error generating audit report: {e}", exc_info=True)
+        return {"error": "Internal Error", "details": str(e)}
+
+
+@mcp.tool()
+def list_audit_reports(
+    parent: str,
+    page_size: int = 50,
+    page_token: str = "",
+    location: str = "global",
+) -> Dict[str, Any]:
+    """Name: list_audit_reports
+
+    Description: Lists audit reports.
+    Parameters:
+    parent (required): The parent scope. Format: 'folders/<folder_id>' or 'projects/<project_id>'.
+    page_size (optional): Maximum number of results to return. Defaults to 50.
+    page_token (optional): Token to get the next page.
+    location (optional): The location of the resource. Defaults to "global".
+    """
+    if not audit_manager_client:
+        return {"error": "Audit Manager Client not initialized"}
+
+    parent = parent + "/locations/" + location
+    logger.info(f"Listing audit reports for parent: {parent}")
+
+    try:
+        request = auditmanager_v1.ListAuditReportsRequest(
+            parent=parent,
+            page_size=page_size,
+            page_token=page_token,
+        )
+
+        page_result = audit_manager_client.list_audit_reports(request=request)
+        
+        # Convert the first page of results to a list of dicts
+        reports = []
+        for report in page_result:
+            reports.append(proto_message_to_dict(report))
+
+        return {
+            "audit_reports": reports,
+            "next_page_token": page_result.next_page_token,
+        }
+
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {e}")
+        return {"error": "Permission Denied", "details": str(e)}
+    except Exception as e:
+        logger.error(f"Error listing audit reports: {e}", exc_info=True)
+        return {"error": "Internal Error", "details": str(e)}
+
+
+@mcp.tool()
+def get_audit_report(
+    parent: str,
+    audit_report_id: str,
+    location: str = "global",
+) -> Dict[str, Any]:
+    """Name: get_audit_report
+
+    Description: Gets a specific audit report.
+    Parameters:
+    parent (required): The parent scope. Format: 'folders/<folder_id>' or 'projects/<project_id>'.
+    audit_report_id (required): The ID of the audit report to retrieve.
+    location (optional): The location of the resource. Defaults to "global".
+    """
+    if not audit_manager_client:
+        return {"error": "Audit Manager Client not initialized"}
+
+    name = parent + "/locations/" + location + "/auditReports/" + audit_report_id
+    logger.info(f"Getting audit report: {name}")
+
+    try:
+        request = auditmanager_v1.GetAuditReportRequest(name=name)
+        report = audit_manager_client.get_audit_report(request=request)
+        return proto_message_to_dict(report)
+
+    except google_exceptions.NotFound as e:
+        logger.error(f"Audit report not found: {e}")
+        return {"error": "Not Found", "details": str(e)}
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {e}")
+        return {"error": "Permission Denied", "details": str(e)}
+    except Exception as e:
+        logger.error(f"Error getting audit report: {e}", exc_info=True)
+        return {"error": "Internal Error", "details": str(e)}
+
+
+@mcp.tool()
+def get_resource_enrollment_status(
+    parent: str,
+    location: str = "global",
+) -> Dict[str, Any]:
+    """Name: get_resource_enrollment_status
+
+    Description: Gets the enrollment status of a resource.
+    Parameters:
+    parent (required): The parent scope. Format: 'organizations/<org_id>' or 'folders/<folder_id>' or 'projects/<project_id>'.
+    location (optional): The location of the resource. Defaults to "global".
+    """
+    if not audit_manager_client:
+        return {"error": "Audit Manager Client not initialized"}
+
+    name = parent + "/locations/" + location + "/resourceEnrollmentStatuses/-"
+    logger.info(f"Getting resource enrollment status: {name}")
+
+    try:
+        request = auditmanager_v1.GetResourceEnrollmentStatusRequest(name=name)
+        status = audit_manager_client.get_resource_enrollment_status(request=request)
+        return proto_message_to_dict(status)
+
+    except google_exceptions.NotFound as e:
+        logger.error(f"Enrollment status not found: {e}")
+        return {"error": "Not Found", "details": str(e)}
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {e}")
+        return {"error": "Permission Denied", "details": str(e)}
+    except Exception as e:
+        logger.error(f"Error getting enrollment status: {e}", exc_info=True)
+        return {"error": "Internal Error", "details": str(e)}
+
+
+@mcp.tool()
+def list_resource_enrollment_statuses(
+    parent: str,
+    page_size: int = 50,
+    page_token: str = "",
+    location: str = "global",
+) -> Dict[str, Any]:
+    """Name: list_resource_enrollment_statuses
+
+    Description: Lists resource enrollment statuses for all resources under the given parent scope.
+    Parameters:
+    parent (required): The parent scope. Format: 'organizations/<org_id>', 'folders/<folder_id>'.
+    page_size (optional): Page size. Defaults to 50.
+    page_token (optional): Page token.
+    location (optional): The location of the resource. Defaults to "global".
+    """
+    if not audit_manager_client:
+        return {"error": "Audit Manager Client not initialized"}
+
+    parent = parent + "/locations/" + location
+    logger.info(f"Listing enrollment statuses for parent: {parent}")
+
+    try:
+        request = auditmanager_v1.ListResourceEnrollmentStatusesRequest(
+            parent=parent,
+            page_size=page_size,
+            page_token=page_token,
+        )
+
+        page_result = audit_manager_client.list_resource_enrollment_statuses(request=request)
+        
+        statuses = []
+        for status in page_result:
+            statuses.append(proto_message_to_dict(status))
+
+        return {
+            "resource_enrollment_statuses": statuses,
+            "next_page_token": page_result.next_page_token,
+        }
+
+    except google_exceptions.PermissionDenied as e:
+        logger.error(f"Permission denied: {e}")
+        return {"error": "Permission Denied", "details": str(e)}
+    except Exception as e:
+        logger.error(f"Error listing enrollment statuses: {e}", exc_info=True)
+        return {"error": "Internal Error", "details": str(e)}
 
 # --- Main execution ---
 
@@ -923,6 +1228,11 @@ def main() -> None:
     if not deployment_client:
         logger.critical(
             "Deployment Client failed to initialize. MCP server cannot serve deployment tools."
+        )
+
+    if not audit_manager_client:
+        logger.critical(
+            "Audit Manager Client failed to initialize. MCP server cannot serve audit manager tools."
         )
 
     logger.info("Starting Compliance Manager MCP server...")
