@@ -1,9 +1,9 @@
 #!/bin/bash
-# Simple installation script for Compliance Manager Gemini CLI Extension
+# Simple installation script for Compliance Gemini CLI Extension
 
 set -e
 
-echo "Installing Compliance Manager Gemini CLI Extension..."
+echo "Installing Compliance Gemini CLI Extension..."
 echo ""
 
 # Check prerequisites
@@ -21,7 +21,7 @@ fi
 echo "✓ Prerequisites found"
 
 # Create extension directory
-EXTENSION_DIR="$HOME/.gemini/extensions/compliance-manager"
+EXTENSION_DIR="$HOME/.gemini/extensions/compliance"
 mkdir -p "$EXTENSION_DIR"
 
 # Create virtual environment (isolates dependencies from system Python)
@@ -34,20 +34,21 @@ echo "Installing dependencies..."
 
 # Use requirements.txt if available, otherwise install directly
 if [ -f "requirements.txt" ]; then
-    "$EXTENSION_DIR/.venv/bin/pip" install -q -r requirements.txt
+    "$EXTENSION_DIR/.venv/bin/pip" install -q --index-url https://pypi.org/simple/ -r requirements.txt
 else
-    "$EXTENSION_DIR/.venv/bin/pip" install -q \
+    "$EXTENSION_DIR/.venv/bin/pip" install -q --index-url https://pypi.org/simple/ \
         httpx>=0.28.1 \
         "mcp[cli]>=1.4.1" \
         python-dotenv>=1.0.0 \
         typing-extensions>=4.8.0 \
         aiohttp>=3.9.0 \
-        google-cloud-cloudsecuritycompliance>=0.2.0
+        google-cloud-cloudsecuritycompliance>=0.5.0 \
+        google-cloud-auditmanager>=0.1.0
 fi
 
 # Copy files
 echo "Copying extension files..."
-cp compliance_manager_mcp.py "$EXTENSION_DIR/"
+cp compliance_mcp.py "$EXTENSION_DIR/"
 cp GEMINI.md "$EXTENSION_DIR/"
 
 # Create run script
@@ -62,20 +63,20 @@ export GLOG_minloglevel=3
 export PYTHONUNBUFFERED=1
 
 # Run MCP server
-# Logging now goes to stderr (configured in compliance_manager_mcp.py)
+# Logging now goes to stderr (configured in compliance_mcp.py)
 # Redirect stderr to /dev/null to keep output clean for JSON-RPC
-exec .venv/bin/python3 -W ignore compliance_manager_mcp.py 2> /tmp/mcpComp.log
+exec .venv/bin/python3 -W ignore compliance_mcp.py 2> /tmp/mcpComp.log
 EOF
 chmod +x "$EXTENSION_DIR/run_mcp.sh"
 
 # Create extension config
 cat > "$EXTENSION_DIR/gemini-extension.json" << EOF
 {
-  "name": "compliance-manager",
+  "name": "compliance",
   "version": "1.0.0",
-  "description": "Google Cloud Compliance Manager extension for Gemini CLI",
+  "description": "Google Cloud Compliance extension for Gemini CLI",
   "mcpServers": {
-    "compliance-manager-mcp": {
+    "compliance-mcp": {
       "command": "$EXTENSION_DIR/run_mcp.sh",
       "args": [],
       "env": {}

@@ -1,6 +1,6 @@
-# Compliance Manager Gemini CLI Extension
+# Compliance Gemini CLI Extension
 
-A Gemini CLI extension for Google Cloud Compliance Manager (Security Command Center Enterprise).
+A Gemini CLI extension for Google Cloud Compliance Manager (Security Command Center Enterprise) and Audit Manager.
 
 ## What It Does
 
@@ -38,7 +38,7 @@ chmod +x install.sh
 That's it! The script will:
 - Create a virtual environment with Python's built-in venv
 - Install dependencies using pip (no need for uv or other tools)
-- Set up the extension in `~/.gemini/extensions/compliance-manager`
+- Set up the extension in `~/.gemini/extensions/compliance`
 
 ### Alternative: Manual Installation with pip
 
@@ -50,17 +50,17 @@ git clone https://github.com/vb30/Compliance-Manager-Gemini-CLI-Extension.git
 cd Compliance-Manager-Gemini-CLI-Extension
 
 # Create extension directory
-mkdir -p ~/.gemini/extensions/compliance-manager
+mkdir -p ~/.gemini/extensions/compliance
 
 # Create virtual environment
-python3 -m venv ~/.gemini/extensions/compliance-manager/.venv
+python3 -m venv ~/.gemini/extensions/compliance/.venv
 
 # Install dependencies using requirements.txt
-~/.gemini/extensions/compliance-manager/.venv/bin/pip install -r requirements.txt
+~/.gemini/extensions/compliance/.venv/bin/pip install -r requirements.txt
 
 # Copy files
-cp compliance_manager_mcp.py ~/.gemini/extensions/compliance-manager/
-cp GEMINI.md ~/.gemini/extensions/compliance-manager/
+cp compliance_mcp.py ~/.gemini/extensions/compliance/
+cp GEMINI.md ~/.gemini/extensions/compliance/
 
 # Create run script and config (see install.sh for details)
 ```
@@ -136,7 +136,7 @@ You need one of these roles on your GCP organization:
 
 **Extension not loading?**
 ```bash
-ls -la ~/.gemini/extensions/compliance-manager/
+ls -la ~/.gemini/extensions/compliance/
 ```
 
 **Authentication issues?**
@@ -146,7 +146,7 @@ gcloud auth application-default print-access-token
 
 **Need to reinstall?**
 ```bash
-rm -rf ~/.gemini/extensions/compliance-manager
+rm -rf ~/.gemini/extensions/compliance
 ./install.sh
 ```
 
@@ -156,6 +156,7 @@ Apache 2.0
 
 ## Links
 
+- [Audit Manager Documentation](https://cloud.google.com/security-command-center/docs/audit-manager-overview)
 - [Compliance Manager Documentation](https://cloud.google.com/security-command-center/docs/compliance-manager-overview)
 - [Gemini CLI](https://github.com/google-gemini/gemini-cli)
 - [Report Issues](https://github.com/vb30/Compliance-Manager-Gemini-CLI-Extension/issues)

@@ -1,6 +1,6 @@
-# Compliance Manager Extension for Gemini CLI
+# Compliance Extension for Gemini CLI
 
-This extension provides integration with Google Cloud Compliance Manager, part of Security Command Center Enterprise.
+This extension provides integration with Google Cloud Compliance Manager, part of Security Command Center Enterprise and Audit Manager.
 
 ## Purpose
 
@@ -14,27 +14,27 @@ The Compliance Manager extension enables you to:
 ## Available Tools
 
 ### Framework Management
-- `@compliance-manager-mcp list_frameworks` - List all available compliance frameworks (built-in and custom)
-- `@compliance-manager-mcp get_framework` - Get detailed information about a specific framework
-- `@compliance-manager-mcp create_framework` - Create a custom compliance framework
-- `@compliance-manager-mcp delete_framework` - Delete a custom framework
+- `@compliance-mcp list_frameworks` - List all available compliance frameworks (built-in and custom)
+- `@compliance-mcp get_framework` - Get detailed information about a specific framework
+- `@compliance-mcp create_framework` - Create a custom compliance framework
+- `@compliance-mcp delete_framework` - Delete a custom framework
 
 ### Cloud Control Management
-- `@compliance-manager-mcp list_cloud_controls` - List all cloud controls (built-in and custom)
-- `@compliance-manager-mcp get_cloud_control` - Get detailed information about a specific cloud control
-- `@compliance-manager-mcp create_cloud_control` - Create a custom cloud control
-- `@compliance-manager-mcp update_cloud_control` - Update a custom cloud control
-- `@compliance-manager-mcp delete_cloud_control` - Delete a custom cloud control
+- `@compliance-mcp list_cloud_controls` - List all cloud controls (built-in and custom)
+- `@compliance-mcp get_cloud_control` - Get detailed information about a specific cloud control
+- `@compliance-mcp create_cloud_control` - Create a custom cloud control
+- `@compliance-mcp update_cloud_control` - Update a custom cloud control
+- `@compliance-mcp delete_cloud_control` - Delete a custom cloud control
 
 ### Framework Deployment
-- `@compliance-manager-mcp list_framework_deployments` - List framework deployments
-- `@compliance-manager-mcp get_framework_deployment` - Get details of a specific deployment
-- `@compliance-manager-mcp create_framework_deployment` - Deploy a framework to a resource
-- `@compliance-manager-mcp delete_framework_deployment` - Remove a framework deployment
+- `@compliance-mcp list_framework_deployments` - List framework deployments
+- `@compliance-mcp get_framework_deployment` - Get details of a specific deployment
+- `@compliance-mcp create_framework_deployment` - Deploy a framework to a resource
+- `@compliance-mcp delete_framework_deployment` - Remove a framework deployment
 
 ### Cloud Control Deployment
-- `@compliance-manager-mcp list_cloud_control_deployments` - List cloud control deployments
-- `@compliance-manager-mcp get_cloud_control_deployment` - Get details of a specific cloud control deployment
+- `@compliance-mcp list_cloud_control_deployments` - List cloud control deployments
+- `@compliance-mcp get_cloud_control_deployment` - Get details of a specific cloud control deployment
 
 ## Example Prompts
 
@@ -62,6 +62,13 @@ The Compliance Manager extension enables you to:
 - "What frameworks are currently deployed to my project?"
 - "Show me the status of all cloud control deployments"
 - "Get details of the CIS framework deployment"
+
+### Audit Management
+- "Enroll project my-prod-project in Audit Manager"
+- "Check enrollment status for organization 123456789"
+- "Generate an audit scope report for project my-proj using FEDRAMP_MODERATE"
+- "List all audit reports in folder 987654"
+- "Get details of audit report report-id-123"
 
 ## Prerequisites
 
@@ -180,6 +187,23 @@ You: "Great! Now let's create your framework with these controls..."
 [calls create_framework]
 
 You: "Your EU data residency framework is ready! Would you like to deploy it to a project or folder?"
+
+### Example: Running a Compliance Audit
+
+```
+User: "I need to generate a FEDRAMP audit report for my project"
+
+You: "I can help with that. To generate the FEDRAMP audit report, I need the following information:
+
+   * What is the project ID?
+   * What is the destination GCS bucket URI (e.g., gs://your-bucket-name)?
+   * Which FEDRAMP compliance standard do you need (e.g., FEDRAMP_MODERATE)?"
+
+User: "my-secure-project, my-test-bucket, FEDRAMP_MODERATE"
+[calls generate_audit_report with scope=projects/my-secure-project, standard=FEDRAMP_MODERATE and will store the result in thr my-test-bucket]
+
+You: "The report generation has started! You can check the status using the operation ID."
+```
 ```
 
 ## Creating Custom Cloud Controls with CEL Expressions
