@@ -88,7 +88,7 @@ except Exception as e:
     deployment_client = None
 
 try:
-    audit_manager_client = auditmanager_v1.AuditManagerClient()
+    audit_manager_client = auditmanager_v1.AuditManagerClient(transport="rest")
     logger.info("Successfully initialized Audit Manager Client.")
 except Exception as e:
     logger.error(f"Failed to initialize Audit Manager Client: {e}", exc_info=True)
