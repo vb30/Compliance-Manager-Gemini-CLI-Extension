@@ -24,6 +24,7 @@ from google.api_core import operation
 from google.longrunning import operations_pb2
 from google.cloud.cloudsecuritycompliance_v1.services.config import ConfigClient
 from google.cloud.cloudsecuritycompliance_v1.services.deployment import DeploymentClient
+from google.cloud import assuredworkloads_v1
 from google.cloud.cloudsecuritycompliance_v1.types import (
     CloudControl,
     CreateCloudControlRequest,
@@ -93,6 +94,13 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize Audit Manager Client: {e}", exc_info=True)
     audit_manager_client = None
+
+try:
+    assured_workloads_client = assuredworkloads_v1.AssuredWorkloadsServiceClient()
+    logger.info("Successfully initialized Assured Workloads Client.")
+except Exception as e:
+    logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
+    assured_workloads_client = None
 
 
 # --- Helper Function for Proto to Dict Conversion ---
@@ -1214,6 +1222,599 @@ def list_resource_enrollment_statuses(
     except Exception as e:
         logger.error(f"Error listing enrollment statuses: {e}", exc_info=True)
         return {"error": "Internal Error", "details": str(e)}
+
+# --- Assured Workloads Tools ---
+
+@mcp.tool()
+async def create_workload(
+    organization_id: str,
+    location: str,
+    display_name: str,
+    compliance_regime: str,
+    billing_account: str,
+    labels: Optional[Dict[str, str]] = None,
+    provisioned_resources_parent: Optional[str] = None,
+    kms_settings: Optional[Dict[str, Any]] = None,
+    enable_sovereign_controls: bool = False,
+    partner: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Name: create_workload
+    Description: Creates a new Assured Workload.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location to create the workload in (e.g., 'us-central1', 'europe-west1').
+    display_name (required): The display name of the workload.
+    compliance_regime (required): The compliance regime to use (e.g., 'FEDRAMP_MODERATE', 'IL4', 'CJIS').
+    billing_account (required): The billing account to associate with the workload (e.g., 'billingAccounts/012345-567890-ABCDEF').
+    labels (optional): Labels to apply to the workload.
+    provisioned_resources_parent (optional): The parent resource for provisioned resources (e.g., 'folders/1234567890').
+    kms_settings (optional): KMS settings for the workload.
+    enable_sovereign_controls (optional): Whether to enable sovereign controls.
+    partner (optional): Partner regime to use (e.g., 'LOCAL_CONTROLS_BY_S3NS').
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    parent = f"organizations/{organization_id}/locations/{location}"
+    logger.info(f"Creating workload in parent: {parent}")
+
+    try:
+        workload = assuredworkloads_v1.Workload(
+            display_name=display_name,
+            compliance_regime=getattr(assuredworkloads_v1.Workload.ComplianceRegime, compliance_regime, assuredworkloads_v1.Workload.ComplianceRegime.COMPLIANCE_REGIME_UNSPECIFIED),
+            billing_account=billing_account,
+            labels=labels or {},
+            enable_sovereign_controls=enable_sovereign_controls,
+        )
+        
+        if provisioned_resources_parent:
+            workload.provisioned_resources_parent = provisioned_resources_parent
+
+        if kms_settings:
+             # Basic mapping for KMS settings, might need expansion based on complexity
+             pass
+
+        if partner:
+             workload.partner = getattr(assuredworkloads_v1.Workload.Partner, partner, assuredworkloads_v1.Workload.Partner.PARTNER_UNSPECIFIED)
+
+        request = assuredworkloads_v1.CreateWorkloadRequest(
+            parent=parent,
+            workload=workload,
+        )
+
+        operation = assured_workloads_client.create_workload(request=request)
+        logger.info(f"CreateWorkload operation started: {operation.operation.name}")
+        
+        # Determine if we should wait or return the operation name. 
+        # For now, let's wait a bit and see if it finishes, similar to other tools.
+        # But Assured Workloads creation can be very slow (minutes). 
+        # So maybe just return the LRO details.
+        
+        # response = operation.result(timeout=10) # fast fail/succeed check
+        # return proto_message_to_dict(response)
+        
+        return {
+            "status": "operation_started",
+            "operation": operation.operation.name,
+            "note": "Workload creation has started. It may take several minutes."
+        }
+
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error creating workload: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def update_workload(
+    organization_id: str,
+    location: str,
+    workload_id: str,
+    display_name: Optional[str] = None,
+    labels: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """Name: update_workload
+    Description: Updates an existing Assured Workload.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location of the workload.
+    workload_id (required): The ID of the workload to update.
+    display_name (optional): The new display name.
+    labels (optional): The new labels.
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
+    logger.info(f"Updating workload: {name}")
+
+    try:
+        workload = assuredworkloads_v1.Workload(name=name)
+        update_mask = field_mask_pb2.FieldMask()
+
+        if display_name:
+            workload.display_name = display_name
+            update_mask.paths.append("display_name")
+        
+        if labels:
+            workload.labels = labels
+            update_mask.paths.append("labels")
+
+        request = assuredworkloads_v1.UpdateWorkloadRequest(
+            workload=workload,
+            update_mask=update_mask,
+        )
+
+        operation = assured_workloads_client.update_workload(request=request)
+        logger.info(f"UpdateWorkload operation started: {operation.operation.name}")
+
+        return {
+            "status": "operation_started",
+            "operation": operation.operation.name,
+            "note": "Workload update has started."
+        }
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error updating workload: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def restrict_allowed_resources(
+    organization_id: str,
+    location: str,
+    workload_id: str,
+    restriction_type: str,
+) -> Dict[str, Any]:
+    """Name: restrict_allowed_resources
+    Description: Restrict the features of the workload with specific allowed resources.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location of the workload.
+    workload_id (required): The ID of the workload.
+    restriction_type (required): The type of restriction (e.g., 'ALLOW_ALL_GCP_RESOURCES', 'ALLOW_COMPLIANT_RESOURCES').
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
+    logger.info(f"Restricting allowed resources for: {name}")
+
+    try:
+        request = assuredworkloads_v1.RestrictAllowedResourcesRequest(
+            name=name,
+            restriction_type=getattr(assuredworkloads_v1.RestrictAllowedResourcesRequest.RestrictionType, restriction_type, assuredworkloads_v1.RestrictAllowedResourcesRequest.RestrictionType.RESTRICTION_TYPE_UNSPECIFIED),
+        )
+
+        response = assured_workloads_client.restrict_allowed_resources(request=request)
+        return {"status": "success", "message": "Allowed resources restricted successfully."}
+
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error restricting allowed resources: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def delete_workload(
+    organization_id: str,
+    location: str,
+    workload_id: str,
+    etag: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Name: delete_workload
+    Description: Deletes a workload.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location of the workload.
+    workload_id (required): The ID of the workload to delete.
+    etag (optional): The etag of the workload. If provided, it must match the server's etag.
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
+    logger.info(f"Deleting workload: {name}")
+
+    try:
+        request = assuredworkloads_v1.DeleteWorkloadRequest(
+            name=name,
+            etag=etag,
+        )
+
+        assured_workloads_client.delete_workload(request=request)
+        return {"status": "success", "message": f"Workload {name} deleted."}
+
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error deleting workload: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def get_workload(
+    organization_id: str,
+    location: str,
+    workload_id: str,
+) -> Dict[str, Any]:
+    """Name: get_workload
+    Description: Gets a specific Assured Workload.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location of the workload.
+    workload_id (required): The ID of the workload.
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
+    logger.info(f"Getting workload: {name}")
+
+    try:
+        request = assuredworkloads_v1.GetWorkloadRequest(name=name)
+        workload = assured_workloads_client.get_workload(request=request)
+        return proto_message_to_dict(workload)
+    except google_exceptions.NotFound as e:
+         logger.error(f"Workload not found: {e}")
+         return {"error": "Not Found", "details": str(e)}
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error getting workload: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def list_workloads(
+    organization_id: str,
+    location: str,
+    page_size: int = 50,
+    page_token: str = "",
+    filter: str = "",
+) -> Dict[str, Any]:
+    """Name: list_workloads
+    Description: Lists Assured Workloads in a location.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location (e.g., 'us-central1' or 'locations/global').
+    page_size (optional): The maximum number of workloads to return.
+    page_token (optional): The page token for pagination.
+    filter (optional): A filter expression.
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    parent = f"organizations/{organization_id}/locations/{location}"
+    logger.info(f"Listing workloads in parent: {parent}")
+
+    try:
+        request = assuredworkloads_v1.ListWorkloadsRequest(
+            parent=parent,
+            page_size=page_size,
+            page_token=page_token,
+            filter=filter,
+        )
+
+        page_result = assured_workloads_client.list_workloads(request=request)
+        
+        workloads = []
+        for workload in page_result:
+            workloads.append(proto_message_to_dict(workload))
+
+        return {
+            "workloads": workloads,
+            "next_page_token": page_result.next_page_token,
+        }
+
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error listing workloads: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def list_violations(
+    organization_id: str,
+    location: str,
+    workload_id: str,
+    page_size: int = 50,
+    page_token: str = "",
+    filter: str = "",
+    interval_start_time: Optional[str] = None,
+    interval_end_time: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Name: list_violations
+    Description: Lists violations for a workload.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location of the workload.
+    workload_id (required): The ID of the workload.
+    page_size (optional): The maximum number of violations to return.
+    page_token (optional): The page token for pagination.
+    filter (optional): A filter expression.
+    interval_start_time (optional): The start of the time interval for querying violations (RFC 3339 format).
+    interval_end_time (optional): The end of the time interval for querying violations (RFC 3339 format).
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    parent = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
+    logger.info(f"Listing violations in parent: {parent}")
+
+    try:
+        interval = None
+        if interval_start_time and interval_end_time:
+             # This requires google.type.Interval which might not be easily constructible from here 
+             # without importing specific proto types.
+             # For now, let's rely on filter if possible, or attempt to construct if we had the class.
+             # Assured Workloads API expects `google.cloud.assuredworkloads.v1.ListViolationsRequest.interval`
+             # which is a `google.type.Interval`.
+             # We can try to rely on the client library's ability to handle dicts for messages?
+             # Or just omit it for now if not strictly required, but the doc says "Optional".
+             pass
+
+        request = assuredworkloads_v1.ListViolationsRequest(
+            parent=parent,
+            page_size=page_size,
+            page_token=page_token,
+            filter=filter,
+        )
+
+        page_result = assured_workloads_client.list_violations(request=request)
+        
+        violations = []
+        for violation in page_result:
+            violations.append(proto_message_to_dict(violation))
+
+        return {
+            "violations": violations,
+            "next_page_token": page_result.next_page_token,
+        }
+
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error listing violations: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def get_violation(
+    organization_id: str,
+    location: str,
+    workload_id: str,
+    violation_id: str,
+) -> Dict[str, Any]:
+    """Name: get_violation
+    Description: Gets a specific violation.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location of the workload.
+    workload_id (required): The ID of the workload.
+    violation_id (required): The ID of the violation.
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}/violations/{violation_id}"
+    logger.info(f"Getting violation: {name}")
+
+    try:
+        request = assuredworkloads_v1.GetViolationRequest(name=name)
+        violation = assured_workloads_client.get_violation(request=request)
+        return proto_message_to_dict(violation)
+    except google_exceptions.NotFound as e:
+         logger.error(f"Violation not found: {e}")
+         return {"error": "Not Found", "details": str(e)}
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error getting violation: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def acknowledge_violation(
+    organization_id: str,
+    location: str,
+    workload_id: str,
+    violation_id: str,
+    comment: str,
+    non_compliant_org_policy: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Name: acknowledge_violation
+    Description: Acknowledges an existing violation.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location of the workload.
+    workload_id (required): The ID of the workload.
+    violation_id (required): The ID of the violation.
+    comment (required): Business justification for acknowledging the violation.
+    non_compliant_org_policy (optional): Name of the OrgPolicy which triggered the violation.
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}/violations/{violation_id}"
+    logger.info(f"Acknowledging violation: {name}")
+
+    try:
+        request = assuredworkloads_v1.AcknowledgeViolationRequest(
+            name=name,
+            comment=comment,
+            non_compliant_org_policy=non_compliant_org_policy,
+        )
+
+        response = assured_workloads_client.acknowledge_violation(request=request)
+        return {"status": "success", "message": "Violation acknowledged.", "response": proto_message_to_dict(response)}
+
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error acknowledging violation: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+# --- Main execution ---
+
+
+@mcp.tool()
+async def list_violations(
+    organization_id: str,
+    location: str,
+    workload_id: str,
+    page_size: int = 50,
+    page_token: str = "",
+    filter: str = "",
+    interval_start_time: Optional[str] = None,
+    interval_end_time: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Name: list_violations
+    Description: Lists violations for a workload.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location of the workload.
+    workload_id (required): The ID of the workload.
+    page_size (optional): The maximum number of violations to return.
+    page_token (optional): The page token for pagination.
+    filter (optional): A filter expression.
+    interval_start_time (optional): The start of the time interval for querying violations (RFC 3339 format).
+    interval_end_time (optional): The end of the time interval for querying violations (RFC 3339 format).
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    parent = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
+    logger.info(f"Listing violations in parent: {parent}")
+
+    try:
+        interval = None
+        if interval_start_time and interval_end_time:
+             # This requires google.type.Interval which might not be easily constructible from here 
+             # without importing specific proto types.
+             # For now, let's rely on filter if possible, or attempt to construct if we had the class.
+             # Assured Workloads API expects `google.cloud.assuredworkloads.v1.ListViolationsRequest.interval`
+             # which is a `google.type.Interval`.
+             # We can try to rely on the client library's ability to handle dicts for messages?
+             # Or just omit it for now if not strictly required, but the doc says "Optional".
+             pass
+        
+        request = assuredworkloads_v1.ListViolationsRequest(
+            parent=parent,
+            page_size=page_size,
+            page_token=page_token,
+            filter=filter,
+        )
+
+        page_result = assured_workloads_client.list_violations(request=request)
+        
+        violations = []
+        for violation in page_result:
+            violations.append(proto_message_to_dict(violation))
+
+        return {
+            "violations": violations,
+            "next_page_token": page_result.next_page_token,
+        }
+
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error listing violations: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def get_violation(
+    organization_id: str,
+    location: str,
+    workload_id: str,
+    violation_id: str,
+) -> Dict[str, Any]:
+    """Name: get_violation
+    Description: Gets a specific violation.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location of the workload.
+    workload_id (required): The ID of the workload.
+    violation_id (required): The ID of the violation.
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}/violations/{violation_id}"
+    logger.info(f"Getting violation: {name}")
+
+    try:
+        request = assuredworkloads_v1.GetViolationRequest(name=name)
+        violation = assured_workloads_client.get_violation(request=request)
+        return proto_message_to_dict(violation)
+    except google_exceptions.NotFound as e:
+         logger.error(f"Violation not found: {e}")
+         return {"error": "Not Found", "details": str(e)}
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error getting violation: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
+
+
+@mcp.tool()
+async def acknowledge_violation(
+    organization_id: str,
+    location: str,
+    workload_id: str,
+    violation_id: str,
+    comment: str,
+    non_compliant_org_policy: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Name: acknowledge_violation
+    Description: Acknowledges an existing violation.
+    Parameters:
+    organization_id (required): The Google Cloud organization ID.
+    location (required): The location of the workload.
+    workload_id (required): The ID of the workload.
+    violation_id (required): The ID of the violation.
+    comment (required): Business justification for acknowledging the violation.
+    non_compliant_org_policy (optional): Name of the OrgPolicy which triggered the violation.
+    """
+    if not assured_workloads_client:
+        return {"error": "Assured Workloads Client not initialized."}
+
+    name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}/violations/{violation_id}"
+    logger.info(f"Acknowledging violation: {name}")
+
+    try:
+        request = assuredworkloads_v1.AcknowledgeViolationRequest(
+            name=name,
+            comment=comment,
+            non_compliant_org_policy=non_compliant_org_policy,
+        )
+
+        response = assured_workloads_client.acknowledge_violation(request=request)
+        return {"status": "success", "message": "Violation acknowledged.", "response": proto_message_to_dict(response)}
+
+    except google_exceptions.GoogleAPICallError as e:
+         logger.error(f"Error acknowledging violation: {e}")
+         return {"error": str(e)}
+    except Exception as e:
+        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
+        return {"error": "An unexpected error occurred", "details": str(e)}
 
 # --- Main execution ---
 

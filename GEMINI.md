@@ -36,6 +36,17 @@ The Compliance Manager extension enables you to:
 - `@compliance-mcp list_cloud_control_deployments` - List cloud control deployments
 - `@compliance-mcp get_cloud_control_deployment` - Get details of a specific cloud control deployment
 
+### Assured Workloads Management
+- `@compliance-mcp create_workload` - Create a new Assured Workload
+- `@compliance-mcp update_workload` - Update an existing Assured Workload
+- `@compliance-mcp restrict_allowed_resources` - Restrict allowed resources for a workload
+- `@compliance-mcp delete_workload` - Delete a workload
+- `@compliance-mcp get_workload` - Get workload details
+- `@compliance-mcp list_workloads` - List workloads
+- `@compliance-mcp list_violations` - List violations for a workload
+- `@compliance-mcp get_violation` - Get violation details
+- `@compliance-mcp acknowledge_violation` - Acknowledge a violation
+
 ## Example Prompts
 
 ### Discovery
@@ -67,6 +78,7 @@ The Compliance Manager extension enables you to:
 - "Enroll project my-prod-project in Audit Manager"
 - "Check enrollment status for organization 123456789"
 - "Generate an audit scope report for project my-proj using FEDRAMP_MODERATE"
+    *   **Note:** For audit report generation, ALWAYS use the `run-audit-helper` skill to ensure all parameters (Scope, Framework, Bucket) are correctly identified.
 - "List all audit reports in folder 987654"
 - "Get details of audit report report-id-123"
 
