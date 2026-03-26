@@ -9,6 +9,7 @@ Talk to Gemini CLI in natural language to manage compliance frameworks and contr
 - **Create**: Build custom cloud controls and frameworks for your specific requirements
 - **Deploy**: Apply frameworks to organizations, folders, or projects
 - **Monitor**: Track compliance deployments and findings
+- **Assured Workloads**: Create and manage regulated environments (FedRAMP, IL4/5, CJIS, etc.) and monitor violations.
 
 ## Installation
 
@@ -111,6 +112,15 @@ gemini
 > What frameworks are currently deployed?
 ```
 
+**Assured Workloads:**
+```
+> List all Assured Workloads in us-central1
+
+> Show violations for workload 'my-workload-id'
+
+> Create a FedRAMP Moderate workload
+```
+
 The extension understands natural language - just ask what you need!
 
 ## Requirements
@@ -158,6 +168,7 @@ Apache 2.0
 
 - [Audit Manager Documentation](https://cloud.google.com/security-command-center/docs/audit-manager-overview)
 - [Compliance Manager Documentation](https://cloud.google.com/security-command-center/docs/compliance-manager-overview)
+- [Assured Workloads Documentation](https://docs.cloud.google.com/assured-workloads/docs/overview)
 - [Gemini CLI](https://github.com/google-gemini/gemini-cli)
 - [Report Issues](https://github.com/vb30/Compliance-Manager-Gemini-CLI-Extension/issues)
 

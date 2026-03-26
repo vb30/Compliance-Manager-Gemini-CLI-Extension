@@ -13,9 +13,11 @@ from compliance_mcp import list_violations, get_violation, acknowledge_violation
 
 class TestAssuredWorkloads(unittest.IsolatedAsyncioTestCase):
     
-    @patch('compliance_mcp.assured_workloads_client')
-    async def test_create_workload_success(self, mock_client):
-        # Mock the client response
+    @patch('compliance_mcp.assuredworkloads_v1.AssuredWorkloadsServiceClient')
+    async def test_create_workload_success(self, mock_client_class):
+        # Mock the client instance
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
         mock_operation = MagicMock()
         mock_operation.operation.name = "organizations/123/locations/us-central1/operations/456"
         mock_client.create_workload.return_value = mock_operation
@@ -41,11 +43,12 @@ class TestAssuredWorkloads(unittest.IsolatedAsyncioTestCase):
         # It's easier to patch proto_message_to_dict for this test to avoid proto complexity
         pass
     
-    @patch('compliance_mcp.assured_workloads_client')
+    @patch('compliance_mcp.assuredworkloads_v1.AssuredWorkloadsServiceClient')
     @patch('compliance_mcp.proto_message_to_dict')
-    async def test_get_workload_success_with_mock_converter(self, mock_converter, mock_client):
-        mock_workload = MagicMock()
-        mock_client.get_workload.return_value = mock_workload
+    async def test_get_workload_success_with_mock_converter(self, mock_converter, mock_client_class):
+        mock_client = MagicMock()
+        mock_client_class.return_value = mock_client
+        mock_client.get_workload.return_value = MagicMock()
         mock_converter.return_value = {"name": "workload/123", "displayName": "Test"}
 
         result = await get_workload(
