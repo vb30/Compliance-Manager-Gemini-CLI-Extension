@@ -166,7 +166,7 @@ Apache 2.0
 
 ## Links
 
-- [Audit Manager Documentation](https://cloud.google.com/security-command-center/docs/audit-manager-overview)
+- [Audit Manager Documentation](https://docs.cloud.google.com/audit-manager/docs/overview)
 - [Compliance Manager Documentation](https://cloud.google.com/security-command-center/docs/compliance-manager-overview)
 - [Assured Workloads Documentation](https://docs.cloud.google.com/assured-workloads/docs/overview)
 - [Gemini CLI](https://github.com/google-gemini/gemini-cli)
