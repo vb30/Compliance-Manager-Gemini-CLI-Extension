@@ -95,13 +95,6 @@ except Exception as e:
     logger.error(f"Failed to initialize Audit Manager Client: {e}", exc_info=True)
     audit_manager_client = None
 
-try:
-    assured_workloads_client = assuredworkloads_v1.AssuredWorkloadsServiceClient()
-    logger.info("Successfully initialized Assured Workloads Client.")
-except Exception as e:
-    logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
-    assured_workloads_client = None
-
 
 # --- Helper Function for Proto to Dict Conversion ---
 def proto_message_to_dict(message: Any) -> Dict[str, Any]:
@@ -1252,13 +1245,21 @@ async def create_workload(
     enable_sovereign_controls (optional): Whether to enable sovereign controls.
     partner (optional): Partner regime to use (e.g., 'LOCAL_CONTROLS_BY_S3NS').
     """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
 
     parent = f"organizations/{organization_id}/locations/{location}"
     logger.info(f"Creating workload in parent: {parent}")
 
     try:
+        try:
+            endpoint = f"{location}-assuredworkloads.googleapis.com"
+            client_options = ClientOptions(api_endpoint=endpoint)
+            regional_client = assuredworkloads_v1.AssuredWorkloadsServiceClient(
+                client_options=client_options, transport="rest"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
+            return {"error": "Failed to initialize Assured Workloads Client."}
+
         workload = assuredworkloads_v1.Workload(
             display_name=display_name,
             compliance_regime=getattr(assuredworkloads_v1.Workload.ComplianceRegime, compliance_regime, assuredworkloads_v1.Workload.ComplianceRegime.COMPLIANCE_REGIME_UNSPECIFIED),
@@ -1282,7 +1283,7 @@ async def create_workload(
             workload=workload,
         )
 
-        operation = assured_workloads_client.create_workload(request=request)
+        operation = regional_client.create_workload(request=request)
         logger.info(f"CreateWorkload operation started: {operation.operation.name}")
         
         # Determine if we should wait or return the operation name. 
@@ -1324,13 +1325,21 @@ async def update_workload(
     display_name (optional): The new display name.
     labels (optional): The new labels.
     """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
 
     name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
     logger.info(f"Updating workload: {name}")
 
     try:
+        try:
+            endpoint = f"{location}-assuredworkloads.googleapis.com"
+            client_options = ClientOptions(api_endpoint=endpoint)
+            regional_client = assuredworkloads_v1.AssuredWorkloadsServiceClient(
+                client_options=client_options, transport="rest"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
+            return {"error": "Failed to initialize Assured Workloads Client."}
+
         workload = assuredworkloads_v1.Workload(name=name)
         update_mask = field_mask_pb2.FieldMask()
 
@@ -1347,7 +1356,7 @@ async def update_workload(
             update_mask=update_mask,
         )
 
-        operation = assured_workloads_client.update_workload(request=request)
+        operation = regional_client.update_workload(request=request)
         logger.info(f"UpdateWorkload operation started: {operation.operation.name}")
 
         return {
@@ -1378,19 +1387,27 @@ async def restrict_allowed_resources(
     workload_id (required): The ID of the workload.
     restriction_type (required): The type of restriction (e.g., 'ALLOW_ALL_GCP_RESOURCES', 'ALLOW_COMPLIANT_RESOURCES').
     """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
 
     name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
     logger.info(f"Restricting allowed resources for: {name}")
 
     try:
+        try:
+            endpoint = f"{location}-assuredworkloads.googleapis.com"
+            client_options = ClientOptions(api_endpoint=endpoint)
+            regional_client = assuredworkloads_v1.AssuredWorkloadsServiceClient(
+                client_options=client_options, transport="rest"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
+            return {"error": "Failed to initialize Assured Workloads Client."}
+
         request = assuredworkloads_v1.RestrictAllowedResourcesRequest(
             name=name,
             restriction_type=getattr(assuredworkloads_v1.RestrictAllowedResourcesRequest.RestrictionType, restriction_type, assuredworkloads_v1.RestrictAllowedResourcesRequest.RestrictionType.RESTRICTION_TYPE_UNSPECIFIED),
         )
 
-        response = assured_workloads_client.restrict_allowed_resources(request=request)
+        response = regional_client.restrict_allowed_resources(request=request)
         return {"status": "success", "message": "Allowed resources restricted successfully."}
 
     except google_exceptions.GoogleAPICallError as e:
@@ -1416,19 +1433,27 @@ async def delete_workload(
     workload_id (required): The ID of the workload to delete.
     etag (optional): The etag of the workload. If provided, it must match the server's etag.
     """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
 
     name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
     logger.info(f"Deleting workload: {name}")
 
     try:
+        try:
+            endpoint = f"{location}-assuredworkloads.googleapis.com"
+            client_options = ClientOptions(api_endpoint=endpoint)
+            regional_client = assuredworkloads_v1.AssuredWorkloadsServiceClient(
+                client_options=client_options, transport="rest"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
+            return {"error": "Failed to initialize Assured Workloads Client."}
+
         request = assuredworkloads_v1.DeleteWorkloadRequest(
             name=name,
             etag=etag,
         )
 
-        assured_workloads_client.delete_workload(request=request)
+        regional_client.delete_workload(request=request)
         return {"status": "success", "message": f"Workload {name} deleted."}
 
     except google_exceptions.GoogleAPICallError as e:
@@ -1452,15 +1477,23 @@ async def get_workload(
     location (required): The location of the workload.
     workload_id (required): The ID of the workload.
     """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
 
     name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
     logger.info(f"Getting workload: {name}")
 
     try:
+        try:
+            endpoint = f"{location}-assuredworkloads.googleapis.com"
+            client_options = ClientOptions(api_endpoint=endpoint)
+            regional_client = assuredworkloads_v1.AssuredWorkloadsServiceClient(
+                client_options=client_options, transport="rest"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
+            return {"error": "Failed to initialize Assured Workloads Client."}
+
         request = assuredworkloads_v1.GetWorkloadRequest(name=name)
-        workload = assured_workloads_client.get_workload(request=request)
+        workload = regional_client.get_workload(request=request)
         return proto_message_to_dict(workload)
     except google_exceptions.NotFound as e:
          logger.error(f"Workload not found: {e}")
@@ -1490,13 +1523,21 @@ async def list_workloads(
     page_token (optional): The page token for pagination.
     filter (optional): A filter expression.
     """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
 
     parent = f"organizations/{organization_id}/locations/{location}"
     logger.info(f"Listing workloads in parent: {parent}")
 
     try:
+        try:
+            endpoint = f"{location}-assuredworkloads.googleapis.com"
+            client_options = ClientOptions(api_endpoint=endpoint)
+            regional_client = assuredworkloads_v1.AssuredWorkloadsServiceClient(
+                client_options=client_options, transport="rest"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
+            return {"error": "Failed to initialize Assured Workloads Client."}
+
         request = assuredworkloads_v1.ListWorkloadsRequest(
             parent=parent,
             page_size=page_size,
@@ -1504,7 +1545,7 @@ async def list_workloads(
             filter=filter,
         )
 
-        page_result = assured_workloads_client.list_workloads(request=request)
+        page_result = regional_client.list_workloads(request=request)
         
         workloads = []
         for workload in page_result:
@@ -1546,40 +1587,46 @@ async def list_violations(
     interval_start_time (optional): The start of the time interval for querying violations (RFC 3339 format).
     interval_end_time (optional): The end of the time interval for querying violations (RFC 3339 format).
     """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
 
     parent = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
     logger.info(f"Listing violations in parent: {parent}")
 
     try:
-        interval = None
-        if interval_start_time and interval_end_time:
-             # This requires google.type.Interval which might not be easily constructible from here 
-             # without importing specific proto types.
-             # For now, let's rely on filter if possible, or attempt to construct if we had the class.
-             # Assured Workloads API expects `google.cloud.assuredworkloads.v1.ListViolationsRequest.interval`
-             # which is a `google.type.Interval`.
-             # We can try to rely on the client library's ability to handle dicts for messages?
-             # Or just omit it for now if not strictly required, but the doc says "Optional".
-             pass
+        try:
+            endpoint = f"{location}-assuredworkloads.googleapis.com"
+            client_options = ClientOptions(api_endpoint=endpoint)
+            regional_client = assuredworkloads_v1.AssuredWorkloadsServiceClient(
+                client_options=client_options, transport="rest"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
+            return {"error": "Failed to initialize Assured Workloads Client."}
 
-        request = assuredworkloads_v1.ListViolationsRequest(
-            parent=parent,
-            page_size=page_size,
-            page_token=page_token,
-            filter=filter,
-        )
 
-        page_result = assured_workloads_client.list_violations(request=request)
+        base_url = f"https://{location}-assuredworkloads.googleapis.com/v1"
+        url = f"{base_url}/{parent}/violations"
         
-        violations = []
-        for violation in page_result:
-            violations.append(proto_message_to_dict(violation))
+        params = {}
+        if page_size:
+            params["pageSize"] = page_size
+        if page_token:
+            params["pageToken"] = page_token
+        if filter:
+            params["filter"] = filter
+
+        response = regional_client.transport._session.get(url, params=params)
+
+        if response.status_code != 200:
+            logger.error(f"Error listing violations: {response.status_code} {response.text}")
+            return {"error": f"Failed to list violations: {response.status_code}", "details": response.text}
+
+        data = response.json()
+        violations = data.get("violations", [])
+        next_page_token = data.get("nextPageToken", "")
 
         return {
             "violations": violations,
-            "next_page_token": page_result.next_page_token,
+            "next_page_token": next_page_token,
         }
 
     except google_exceptions.GoogleAPICallError as e:
@@ -1605,16 +1652,34 @@ async def get_violation(
     workload_id (required): The ID of the workload.
     violation_id (required): The ID of the violation.
     """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
 
     name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}/violations/{violation_id}"
     logger.info(f"Getting violation: {name}")
 
     try:
-        request = assuredworkloads_v1.GetViolationRequest(name=name)
-        violation = assured_workloads_client.get_violation(request=request)
-        return proto_message_to_dict(violation)
+        try:
+            endpoint = f"{location}-assuredworkloads.googleapis.com"
+            client_options = ClientOptions(api_endpoint=endpoint)
+            regional_client = assuredworkloads_v1.AssuredWorkloadsServiceClient(
+                client_options=client_options, transport="rest"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
+            return {"error": "Failed to initialize Assured Workloads Client."}
+
+        base_url = f"https://{location}-assuredworkloads.googleapis.com/v1"
+        url = f"{base_url}/{name}"
+
+        response = regional_client.transport._session.get(url)
+
+        if response.status_code == 404:
+            logger.error(f"Violation not found: {response.status_code} {response.text}")
+            return {"error": "Not Found", "details": response.text}
+        elif response.status_code != 200:
+            logger.error(f"Error getting violation: {response.status_code} {response.text}")
+            return {"error": f"Failed to get violation: {response.status_code}", "details": response.text}
+
+        return response.json()
     except google_exceptions.NotFound as e:
          logger.error(f"Violation not found: {e}")
          return {"error": "Not Found", "details": str(e)}
@@ -1645,169 +1710,37 @@ async def acknowledge_violation(
     comment (required): Business justification for acknowledging the violation.
     non_compliant_org_policy (optional): Name of the OrgPolicy which triggered the violation.
     """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
 
     name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}/violations/{violation_id}"
     logger.info(f"Acknowledging violation: {name}")
 
     try:
-        request = assuredworkloads_v1.AcknowledgeViolationRequest(
-            name=name,
-            comment=comment,
-            non_compliant_org_policy=non_compliant_org_policy,
-        )
+        try:
+            endpoint = f"{location}-assuredworkloads.googleapis.com"
+            client_options = ClientOptions(api_endpoint=endpoint)
+            regional_client = assuredworkloads_v1.AssuredWorkloadsServiceClient(
+                client_options=client_options, transport="rest"
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Assured Workloads Client: {e}", exc_info=True)
+            return {"error": "Failed to initialize Assured Workloads Client."}
 
-        response = assured_workloads_client.acknowledge_violation(request=request)
-        return {"status": "success", "message": "Violation acknowledged.", "response": proto_message_to_dict(response)}
+        base_url = f"https://{location}-assuredworkloads.googleapis.com/v1"
+        url = f"{base_url}/{name}:acknowledge"
 
-    except google_exceptions.GoogleAPICallError as e:
-         logger.error(f"Error acknowledging violation: {e}")
-         return {"error": str(e)}
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-        return {"error": "An unexpected error occurred", "details": str(e)}
-
-# --- Main execution ---
-
-
-@mcp.tool()
-async def list_violations(
-    organization_id: str,
-    location: str,
-    workload_id: str,
-    page_size: int = 50,
-    page_token: str = "",
-    filter: str = "",
-    interval_start_time: Optional[str] = None,
-    interval_end_time: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Name: list_violations
-    Description: Lists violations for a workload.
-    Parameters:
-    organization_id (required): The Google Cloud organization ID.
-    location (required): The location of the workload.
-    workload_id (required): The ID of the workload.
-    page_size (optional): The maximum number of violations to return.
-    page_token (optional): The page token for pagination.
-    filter (optional): A filter expression.
-    interval_start_time (optional): The start of the time interval for querying violations (RFC 3339 format).
-    interval_end_time (optional): The end of the time interval for querying violations (RFC 3339 format).
-    """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
-
-    parent = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}"
-    logger.info(f"Listing violations in parent: {parent}")
-
-    try:
-        interval = None
-        if interval_start_time and interval_end_time:
-             # This requires google.type.Interval which might not be easily constructible from here 
-             # without importing specific proto types.
-             # For now, let's rely on filter if possible, or attempt to construct if we had the class.
-             # Assured Workloads API expects `google.cloud.assuredworkloads.v1.ListViolationsRequest.interval`
-             # which is a `google.type.Interval`.
-             # We can try to rely on the client library's ability to handle dicts for messages?
-             # Or just omit it for now if not strictly required, but the doc says "Optional".
-             pass
-        
-        request = assuredworkloads_v1.ListViolationsRequest(
-            parent=parent,
-            page_size=page_size,
-            page_token=page_token,
-            filter=filter,
-        )
-
-        page_result = assured_workloads_client.list_violations(request=request)
-        
-        violations = []
-        for violation in page_result:
-            violations.append(proto_message_to_dict(violation))
-
-        return {
-            "violations": violations,
-            "next_page_token": page_result.next_page_token,
+        payload = {
+            "comment": comment,
         }
+        if non_compliant_org_policy:
+            payload["nonCompliantOrgPolicy"] = non_compliant_org_policy
 
-    except google_exceptions.GoogleAPICallError as e:
-         logger.error(f"Error listing violations: {e}")
-         return {"error": str(e)}
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-        return {"error": "An unexpected error occurred", "details": str(e)}
+        response = regional_client.transport._session.post(url, json=payload)
 
+        if response.status_code != 200:
+            logger.error(f"Error acknowledging violation: {response.status_code} {response.text}")
+            return {"error": f"Failed to acknowledge violation: {response.status_code}", "details": response.text}
 
-@mcp.tool()
-async def get_violation(
-    organization_id: str,
-    location: str,
-    workload_id: str,
-    violation_id: str,
-) -> Dict[str, Any]:
-    """Name: get_violation
-    Description: Gets a specific violation.
-    Parameters:
-    organization_id (required): The Google Cloud organization ID.
-    location (required): The location of the workload.
-    workload_id (required): The ID of the workload.
-    violation_id (required): The ID of the violation.
-    """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
-
-    name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}/violations/{violation_id}"
-    logger.info(f"Getting violation: {name}")
-
-    try:
-        request = assuredworkloads_v1.GetViolationRequest(name=name)
-        violation = assured_workloads_client.get_violation(request=request)
-        return proto_message_to_dict(violation)
-    except google_exceptions.NotFound as e:
-         logger.error(f"Violation not found: {e}")
-         return {"error": "Not Found", "details": str(e)}
-    except google_exceptions.GoogleAPICallError as e:
-         logger.error(f"Error getting violation: {e}")
-         return {"error": str(e)}
-    except Exception as e:
-        logger.error(f"An unexpected error occurred: {e}", exc_info=True)
-        return {"error": "An unexpected error occurred", "details": str(e)}
-
-
-@mcp.tool()
-async def acknowledge_violation(
-    organization_id: str,
-    location: str,
-    workload_id: str,
-    violation_id: str,
-    comment: str,
-    non_compliant_org_policy: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Name: acknowledge_violation
-    Description: Acknowledges an existing violation.
-    Parameters:
-    organization_id (required): The Google Cloud organization ID.
-    location (required): The location of the workload.
-    workload_id (required): The ID of the workload.
-    violation_id (required): The ID of the violation.
-    comment (required): Business justification for acknowledging the violation.
-    non_compliant_org_policy (optional): Name of the OrgPolicy which triggered the violation.
-    """
-    if not assured_workloads_client:
-        return {"error": "Assured Workloads Client not initialized."}
-
-    name = f"organizations/{organization_id}/locations/{location}/workloads/{workload_id}/violations/{violation_id}"
-    logger.info(f"Acknowledging violation: {name}")
-
-    try:
-        request = assuredworkloads_v1.AcknowledgeViolationRequest(
-            name=name,
-            comment=comment,
-            non_compliant_org_policy=non_compliant_org_policy,
-        )
-
-        response = assured_workloads_client.acknowledge_violation(request=request)
-        return {"status": "success", "message": "Violation acknowledged.", "response": proto_message_to_dict(response)}
+        return {"status": "success", "message": "Violation acknowledged.", "response": response.json()}
 
     except google_exceptions.GoogleAPICallError as e:
          logger.error(f"Error acknowledging violation: {e}")
@@ -1843,4 +1776,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

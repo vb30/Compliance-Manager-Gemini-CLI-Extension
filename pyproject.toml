@@ -11,5 +11,6 @@ dependencies = [
     "aiohttp>=3.9.0",
     "google-cloud-cloudsecuritycompliance>=0.5.0",
     "google-cloud-auditmanager>=0.1.0",
+    "google-cloud-assured-workloads>=1.0.0",
 ]
 
