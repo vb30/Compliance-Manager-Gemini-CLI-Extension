@@ -217,6 +217,75 @@ Show me deployment details for the CIS framework
 Remove the NIST framework deployment from project my-project-id
 ```
 
+## Assured Workloads
+
+Assured Workloads help you automate compliance and regulatory requirements for your Google Cloud resources.
+
+### List Workloads
+
+```
+List all Assured Workloads in organization 123456789012 for region us-central1
+
+Show me workloads in region europe-west1
+```
+
+### Create Workloads
+
+When creating workloads, specify the compliance regime and billing account. Common regimes include `FEDRAMP_MODERATE`, `FEDRAMP_HIGH`, `IL4`, `IL5`, `CJIS`, `HIPAA`, etc.
+
+```
+Create a new Assured Workload for FedRAMP Moderate in us-central1 with name 'fedramp-workload' and billing account 'billingAccounts/012345-567890-ABCDEF'
+
+I want to create a CJIS workload in us-east1
+```
+
+> [!NOTE]
+> Workload creation is a long-running operation and might take several minutes to complete. The extension will return the operation name so you can track its progress.
+
+### Update Workloads
+
+```
+Change the display name of workload 'my-workload-id' to 'production-workload' in us-central1
+
+Update the labels for workload 'workload-123' in europe-west1 to include 'env=prod'
+```
+
+### Restrict Allowed Resources
+
+```
+Restrict allowed resources for workload 'workload-id' in us-central1 to 'ALLOW_COMPLIANT_RESOURCES'
+```
+
+### Delete Workloads
+
+```
+Delete the Assured Workload 'workload-id' in us-central1
+```
+
+### Violations Management
+
+Assured Workloads monitor your environment for compliance violations.
+
+#### List Violations
+
+```
+List all violations for workload 'workload-id' in us-central1
+
+Show me violations for my workload in europe-west1
+```
+
+#### Get Violation Details
+
+```
+Tell me more about violation 'violation-id' for workload 'workload-id' in us-central1
+```
+
+#### Acknowledge Violations
+
+```
+Acknowledge violation 'violation-id' for workload 'workload-id' in us-central1 with comment 'Authorized exception by security team'
+```
+
 ## Natural Language Examples
 
 The extension understands natural language. Here are some examples:

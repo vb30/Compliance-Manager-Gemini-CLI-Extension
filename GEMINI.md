@@ -36,6 +36,17 @@ The Compliance Manager extension enables you to:
 - `@compliance-mcp list_cloud_control_deployments` - List cloud control deployments
 - `@compliance-mcp get_cloud_control_deployment` - Get details of a specific cloud control deployment
 
+### Assured Workloads Management
+- `@compliance-mcp create_workload` - Create a new Assured Workload
+- `@compliance-mcp update_workload` - Update an existing Assured Workload
+- `@compliance-mcp restrict_allowed_resources` - Restrict allowed resources for a workload
+- `@compliance-mcp delete_workload` - Delete a workload
+- `@compliance-mcp get_workload` - Get workload details
+- `@compliance-mcp list_workloads` - List workloads
+- `@compliance-mcp list_violations` - List violations for a workload
+- `@compliance-mcp get_violation` - Get violation details
+- `@compliance-mcp acknowledge_violation` - Acknowledge a violation
+
 ## Example Prompts
 
 ### Discovery
@@ -67,12 +78,22 @@ The Compliance Manager extension enables you to:
 - "Enroll project my-prod-project in Audit Manager"
 - "Check enrollment status for organization 123456789"
 - "Generate an audit scope report for project my-proj using FEDRAMP_MODERATE"
+    *   **Note:** For audit report generation, ALWAYS use the `run-audit-helper` skill to ensure all parameters (Scope, Framework, Bucket) are correctly identified.
 - "List all audit reports in folder 987654"
 - "Get details of audit report report-id-123"
 
+### Assured Workloads
+
+- "List all Assured Workloads in us-central1 for organization 123"
+- "Create a new FedRAMP Moderate workload in us-central1"
+- "Show me violations for workload 'workload-id'"
+- "Acknowledge violation 'violation-id' for workload 'workload-id' with comment 'Exception approved'"
+
 ## Prerequisites
 
-### 1. Enable Compliance Manager
+### Compliance and Audit Manager Prerequisites
+
+#### 1. Enable Compliance Manager
 
 Before using this extension, you must enable Compliance Manager in your Google Cloud organization:
 
@@ -114,21 +135,40 @@ gcloud services enable securitycenter.googleapis.com --project=YOUR_PROJECT_ID
 
 For detailed instructions, see: https://cloud.google.com/security-command-center/docs/compliance-manager-enable
 
-### 2. Authentication
+#### 2. Authentication
 
 Ensure you have Google Cloud credentials configured:
 - Run `gcloud auth application-default login`, OR
 - Set `GOOGLE_APPLICATION_CREDENTIALS` environment variable
 
-### 3. IAM Permissions
+#### 3. IAM Permissions
 
 You need appropriate permissions:
 - `roles/securitycenter.complianceManager` or `roles/securitycenter.adminEditor` for full access
 - `roles/securitycenter.adminViewer` for read-only operations
 
-### 4. Organization ID
+#### 4. Organization ID
 
 Know your Google Cloud organization ID (numeric, e.g., '123456789012')
+
+### Assured Workloads Prerequisites
+
+To use the Assured Workloads tools, you must meet the following requirements:
+
+#### 1. Google Cloud Organization
+You must have an active Google Cloud Organization (cannot be used with standalone projects).
+
+#### 2. Billing Account
+A valid billing account must be linked to your organization.
+
+#### 3. API Enablement
+- Enable `assuredworkloads.googleapis.com` (Main API).
+- Enable APIs for individual services (e.g., `compute.googleapis.com`) inside the workload folder.
+
+#### 4. IAM Roles
+- `roles/assuredworkloads.admin` (Assured Workloads Admin)
+- `roles/axt.admin` (Access Transparency Admin)
+- `roles/resourcemanager.organizationViewer` (Organization Viewer)
 
 ## Workflows
 
@@ -204,6 +244,24 @@ User: "my-secure-project, my-test-bucket, FEDRAMP_MODERATE"
 
 You: "The report generation has started! You can check the status using the operation ID."
 ```
+```
+
+### Example: Managing Assured Workloads and Violations
+
+```
+User: "Check if there are any violations in my Assured Workloads"
+
+You: "I can help you check for violations! First, let's list your workloads to identify the one you want to check. What is your organization ID and location (e.g., us-central1)?"
+
+User: "Organization is 123456789012, use us-central1"
+
+You: "Let me list the workloads in us-central1..."
+[calls list_workloads]
+
+You: "I found a workload: 'fedramp-prod' (ID: workload-123). Let me check for violations..."
+[calls list_violations for workload-123]
+
+You: "I found a violation related to Org Policy 'restrictServiceUsage'. The state is ACTIVE. Would you like me to acknowledge it?"
 ```
 
 ## Creating Custom Cloud Controls with CEL Expressions

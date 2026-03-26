@@ -12,5 +12,5 @@ echo "Project: $GOOGLE_CLOUD_PROJECT"
 echo ""
 
 # Start Gemini CLI
-gemini --debug
+gemini --debug --model gemini-3.1-pro-preview
 
